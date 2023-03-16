@@ -4,11 +4,12 @@ from sklearn.metrics import accuracy_score
 from xgboost import XGBClassifier
 
 from core.data_processing.se_dataset import SelfExplanations
-from scripts.mtl_bert_train import get_new_train_test_split
+from scripts.mtl_bert_train import get_new_train_test_split, filter_rb_df
 
-file = "../data/results_paraphrase_se_aggregated_dataset_2.csv"
+file = "../data/results_paraphrase_se_aggregated_dataset_v2.csv"
 
 df = pd.read_csv(file, delimiter='\t')
+df = filter_rb_df(df)
 
 feature_columns = df.columns.tolist()[114:]
 
@@ -26,7 +27,7 @@ for task in SelfExplanations.MTL_TARGETS:
     x_train = df_train_filtered[feature_columns]
     x_test = df_test_filtered[feature_columns]
 
-    model = XGBClassifier()
+    model = XGBClassifier(tree_method="gpu_hist", enable_categorical=True)
     model.fit(x_train, y_train)
 
     y_predict = model.predict(x_test)

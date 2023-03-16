@@ -86,7 +86,7 @@ def experiment(task_level_weights=[], bert_model="bert-base-cased", lr=1e-3, num
         tokenizer = BertTokenizer.from_pretrained(bert_model)
 
     self_explanations = SelfExplanations()
-    self_explanations.parse_se_from_csv("../../data/results_paraphrase_se_aggregated_dataset_2.csv")
+    self_explanations.parse_se_from_csv("../../data/results_paraphrase_se_aggregated_dataset_v2.csv")
 
     self_explanations.df = filter_rb_df(self_explanations.df)
 

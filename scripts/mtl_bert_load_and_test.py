@@ -20,7 +20,7 @@ if __name__ == '__main__':
 
     self_explanations = SelfExplanations()
     target_sent_enhanced = self_explanations.parse_se_from_csv(
-        "../data/results_paraphrase_se_aggregated_dataset_2.csv")
+        "../data/results_paraphrase_se_aggregated_dataset_v2.csv")
     self_explanations.df = filter_rb_df(self_explanations.df)
 
     # IDs = self_explanations.df['ID'].unique().tolist()
