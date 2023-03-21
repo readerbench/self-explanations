@@ -83,7 +83,7 @@ class ZeroRules:
         return len(words_clean_se) / len(words_se)
 
     def read_frozen_expressions(self):
-        frozen_expr_file = open('/home/bnicula/snap/PASTEL/data/frozen_expressions.txt', 'r')
+        frozen_expr_file = open('../data/frozen_expressions.txt', 'r')
         lines = frozen_expr_file.readlines()
         regex_list = []
         for line in lines:

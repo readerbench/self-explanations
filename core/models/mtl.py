@@ -136,15 +136,17 @@ class BERTMTL(pl.LightningModule):
 
     out_targets = transp_targets.cpu()
     out_outputs = torch.Tensor([[y.argmax() for y in x] for x in outputs]).cpu()
-    return (out_targets.reshape(-1).tolist(), out_outputs.reshape(-1).tolist(), batch["text_s"], batch["text_p"], batch["filter_data"].reshape(-1).tolist(),
-            f"{batch['misc_t'][0]}\t{batch['misc_s'][0]}\t{batch['misc_i'][0]}\t")
+    return (out_targets.reshape(-1).tolist(),
+            out_outputs.reshape(-1).tolist(),
+            batch["text_s"],
+            batch["text_p"],
+            batch["filter_data"].reshape(-1).tolist())
 
   def test_epoch_end(self, validation_step_outputs):
     for i, l in enumerate(validation_step_outputs):
       out_line = ""
       out_line += l[2][0] + "\t"
       out_line += l[3][0] + "\t"
-      out_line += l[5] + "\t"
       out_line += "\t".join(map(str, l[0])) + "\t"
       out_line += "\t".join(map(str, l[1])) + "\t"
       out_line += "\t".join(map(str, l[4])) + "\t"

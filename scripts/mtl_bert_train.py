@@ -79,14 +79,14 @@ def experiment(task_level_weights=[], bert_model="bert-base-cased", lr=1e-3, num
         num_tasks = 1
     predefined_version = ""
     MAX_LEN_P = 80
-    BATCH_SIZE = 128
+    BATCH_SIZE = 32
     if "roberta" in bert_model:
         tokenizer = RobertaTokenizer.from_pretrained(bert_model)
     else:
         tokenizer = BertTokenizer.from_pretrained(bert_model)
 
     self_explanations = SelfExplanations()
-    self_explanations.parse_se_from_csv("../../data/results_paraphrase_se_aggregated_dataset_v2.csv")
+    self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_2.csv")
 
     self_explanations.df = filter_rb_df(self_explanations.df)
 
@@ -120,7 +120,7 @@ def experiment(task_level_weights=[], bert_model="bert-base-cased", lr=1e-3, num
         total = len(df_aux[task_name]) * 1.0
         task_weights.append(torch.Tensor([total / values[i] if i in values else 0 for i in range(SelfExplanations.MTL_CLASS_DICT[task_name])]))
 
-    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="test_loss")
+    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="test_loss", every_n_epochs=10)
     model = BERTMTL(task_names, bert_model, rb_feats=rb_feats, task_weights=task_weights, task_level_weights=task_level_weights, lr=lr, num_epochs=num_epochs, use_filtering=True)
 
     trainer = pl.Trainer(

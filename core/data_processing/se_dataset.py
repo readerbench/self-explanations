@@ -58,20 +58,13 @@ class SelfExplanations:
 
 
 class SEDataset(Dataset):
-  def __init__(self, source, production, targets, tokenizer, max_len, rb_feats=None, filter_data=None,
-               misc_t=None,
-               misc_s=None,
-               misc_i=None
-               ):
+  def __init__(self, source, production, targets, tokenizer, max_len, rb_feats=None, filter_data=None):
     self.source = source
     self.production = production
     self.targets = targets
     self.tokenizer = tokenizer
     self.max_len = max_len
     self.filter_data = filter_data
-    self.misc_t = misc_t
-    self.misc_s = misc_s
-    self.misc_i = misc_i
     if rb_feats is not None:
       rb_feats[rb_feats == 'None'] = 0
       rb_feats[rb_feats == 'True'] = 1
@@ -114,9 +107,6 @@ class SEDataset(Dataset):
       'attention_mask': encoding['attention_mask'].flatten(),
       'targets': torch.LongTensor(target),
       'item': item,
-      'misc_t': self.misc_t[item],
-      'misc_s': self.misc_s[item],
-      'misc_i': self.misc_i[item],
     }
 
 def create_data_loader(df, tokenizer, max_len, batch_size, num_tasks, use_rb_feats=False, use_filtering=False, task_name=None):
@@ -141,10 +131,7 @@ def create_data_loader(df, tokenizer, max_len, batch_size, num_tasks, use_rb_fea
     filter_data=filter_data,
     targets=np.array([df[t] for t in targets]).transpose(),
     tokenizer=tokenizer,
-    max_len=max_len,
-    misc_t=df['TextID'].to_numpy(),
-    misc_s=df['SentNo'].to_numpy(),
-    misc_i=df['ID'].to_numpy(),
+    max_len=max_len
   )
   return DataLoader(
     ds,
