@@ -32,8 +32,8 @@ class BERTMTL(pl.LightningModule):
     task_classes = [SelfExplanations.MTL_CLASS_DICT[x] for x in self.task_names]
     self.num_tasks = len(task_names)
     if self.use_grad_norm:
-      # self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float() * (1.0 / self.num_tasks))
-      self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float())
+      self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float() * (1.0 / self.num_tasks))
+      # self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float())
     else:
       self.task_level_weights = [1 for _ in range(self.num_tasks)] if len(task_level_weights) < self.num_tasks else task_level_weights
     self.iteration_stat_aggregator = OrderedDict()
@@ -165,7 +165,7 @@ class BERTMTL(pl.LightningModule):
       constant_term = constant_term.cuda()
     # print('Constant term: {}'.format(constant_term))
     # this is the GradNorm loss itself
-    grad_norm_loss = torch.sum(torch.abs(norms - constant_term))
+    grad_norm_loss = torch.sum(torch.abs(norms - constant_term)) + torch.abs(1 - self.task_level_weights.sum())
     # print('GradNorm loss {}'.format(grad_norm_loss))
 
     # compute the gradient for the weights
@@ -177,8 +177,17 @@ class BERTMTL(pl.LightningModule):
       self.iteration_stat_aggregator[f"{task}_train_loss"] += partial_losses[i].item()
     self.train_iter_counter += 1
     opt.step()
-    print(f"|{grad_norm_loss}|{self.task_level_weights.grad}|{self.task_level_weights}")
+    print(f"{self.task_level_weights} | {self.task_level_weights.sum()}")
     return loss
+
+  def on_train_epoch_end(self):
+    print(f"Reached epoch {self.current_epoch} end.")
+    sch = self.lr_schedulers()
+    print("LR", sch.get_lr())
+    sch.step()
+    print("LR", sch.get_lr())
+
+    self.log("LR", sch.get_lr()[0])
 
   def validation_step(self, batch, batch_idx):
     loss, partial_losses, transp_targets, outputs = self.process_batch_get_losses(batch)
@@ -239,6 +248,7 @@ class BERTMTL(pl.LightningModule):
     task_targets = [[] for _ in range(self.num_tasks)]
     task_outputs = [[] for _ in range(self.num_tasks)]
 
+    print(f"@@@|{self.task_level_weights.grad}|{self.task_level_weights}")
     for i in range(self.num_tasks):
       for j in range(len(targets)):
         task_targets[i].append(targets[j][i])
@@ -260,8 +270,6 @@ class BERTMTL(pl.LightningModule):
       self.reset_iteration_stat_aggregator()
       self.log(f"acc_{self.task_names[i]}", acc(filtered_outputs, filtered_targets))
       self.log(f"f1_{self.task_names[i]}", f1(filtered_outputs, filtered_targets))
-      # self.log("LR", self.scheduler.get_lr()[0])
-      # print("LR", self.scheduler.get_lr())
       print(confusion_matrix(filtered_targets, filtered_outputs))
       print(classification_report(filtered_targets, filtered_outputs))
 
@@ -275,24 +283,27 @@ class BERTMTL(pl.LightningModule):
       # BERT params - no WD
       {'params': [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay) and n.find("bert") != -1],
        'weight_decay': 0.0, 'lr': 1e-5},
+      # task-level weights
+      {'params': [p for n, p in self.named_parameters() if n.find("task_level_weights") != -1],
+       'weight_decay': 0.0001, 'lr': 1e-2},
       # non-BERT params - with WD
       {'params': [p for n, p in self.named_parameters() if
-                  not any(nd in n for nd in no_decay) and n.find("bert") == -1],
+                  not any(nd in n for nd in no_decay) and n.find("bert") == -1 and n.find("task_level_weights") == -1],
        'weight_decay': 0.0001},
       # non-BERT params - no WD
       {'params': [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay) and n.find("bert") == -1],
        'weight_decay': 0.0}
     ]
-    # optimizer = optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
-    optimizer = optim.Adam(self.parameters(), lr=1e-3)
-    # scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.num_epochs//5, num_training_steps=self.num_epochs)
-
+    optimizer = optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
+    # optimizer = optim.Adam(self.parameters(), lr=1e-3)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.num_epochs//5, num_training_steps=self.num_epochs)
+    scheduler.step()
     return {
             'optimizer': optimizer,
-            # 'lr_scheduler': {
-            #     'scheduler': scheduler,
-            #     'interval': 'epoch'
-            #     }
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'interval': 'epoch'
+                }
             }
 
     # return [optimizer], [{"scheduler": self.scheduler, "interval": "step"}]

@@ -127,7 +127,7 @@ def experiment(task_level_weights=[], bert_model="bert-base-cased", lr=1e-3, num
         accelerator="auto",
         callbacks=[checkpoint_callback],
         devices=1 if torch.cuda.is_available() else None,  # limiting got iPython runs
-        # limit_train_batches=100,
+        # limit_train_batches=5,
         max_epochs=num_epochs)
     trainer.fit(model, train_dataloaders=train_data_loader, val_dataloaders=val_data_loader)
 
