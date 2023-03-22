@@ -102,8 +102,8 @@ def experiment(task_level_weights=[], bert_model="bert-base-cased", lr=1e-3, num
     # df_test = self_explanations.df[self_explanations.df['ID'].isin(test_IDs)]
 
     # toggle 0 or 1 for using rb_features
-    train_data_loader = create_data_loader(df_train, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True, task_name=task_name, use_filtering=True)
-    val_data_loader = create_data_loader(df_test, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True, task_name=task_name, use_filtering=True)
+    train_data_loader = create_data_loader(df_train, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True, task_name=task_name, use_filtering=False)
+    val_data_loader = create_data_loader(df_test, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True, task_name=task_name, use_filtering=False)
     rb_feats = train_data_loader.dataset.rb_feats.shape[1]
     task_weights = []
     if num_tasks > 1:
@@ -121,7 +121,7 @@ def experiment(task_level_weights=[], bert_model="bert-base-cased", lr=1e-3, num
         task_weights.append(torch.Tensor([total / values[i] if i in values else 0 for i in range(SelfExplanations.MTL_CLASS_DICT[task_name])]))
 
     checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="test_loss", every_n_epochs=10)
-    model = BERTMTL(task_names, bert_model, rb_feats=rb_feats, task_weights=task_weights, task_level_weights=task_level_weights, lr=lr, num_epochs=num_epochs, use_filtering=True)
+    model = BERTMTL(task_names, bert_model, rb_feats=rb_feats, task_weights=task_weights, task_level_weights=task_level_weights, lr=lr, num_epochs=num_epochs, use_filtering=False)
 
     trainer = pl.Trainer(
         accelerator="auto",
@@ -139,7 +139,7 @@ if __name__ == '__main__':
     print("=" * 33)
     # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, task_name="elaborationpresence")
     print("=" * 33)
-    experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, task_name="overall")
+    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, task_name="overall")
     print("=" * 33)
     experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25)
     #experiment([2, 2, 1, 5], bert_model="roberta-base", lr=5e-4)

@@ -3,6 +3,7 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
+import numpy as np
 from sklearn.metrics import confusion_matrix, f1_score, classification_report
 from torch import optim
 from transformers import BertModel, RobertaModel, get_linear_schedule_with_warmup
@@ -15,20 +16,26 @@ from core.data_processing.se_dataset import SelfExplanations
 
 class BERTMTL(pl.LightningModule):
   def __init__(self, task_names, pretrained_bert_model, rb_feats=0, task_weights=None, task_level_weights=[], lr=1e-3,
-               num_epochs=15, use_filtering=False):
+               num_epochs=15, use_filtering=False, use_grad_norm=True):
     super().__init__()
+    self.automatic_optimization = False
     if "roberta" in pretrained_bert_model:
       print(f"Training RoBERTa lr={lr}")
       self.bert = RobertaModel.from_pretrained(pretrained_bert_model, return_dict=False)
     else:
       print(f"Training BERT lr={lr}")
       self.bert = BertModel.from_pretrained(pretrained_bert_model, return_dict=False)
+    self.use_grad_norm = use_grad_norm
     self.drop = nn.Dropout(p=0.2)
     self.tmp1 = nn.Linear(self.bert.config.hidden_size, 100)
     self.task_names = task_names
     task_classes = [SelfExplanations.MTL_CLASS_DICT[x] for x in self.task_names]
     self.num_tasks = len(task_names)
-    self.task_level_weights = [1 for _ in range(self.num_tasks)] if len(task_level_weights) < self.num_tasks else task_level_weights
+    if self.use_grad_norm:
+      # self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float() * (1.0 / self.num_tasks))
+      self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float())
+    else:
+      self.task_level_weights = [1 for _ in range(self.num_tasks)] if len(task_level_weights) < self.num_tasks else task_level_weights
     self.iteration_stat_aggregator = OrderedDict()
     self.train_iter_counter = 0
     self.val_iter_counter = 0
@@ -38,6 +45,7 @@ class BERTMTL(pl.LightningModule):
     self.num_epochs = num_epochs
     self.rb_feats = rb_feats
     self.use_filtering = use_filtering
+    self.filtering = None
     if use_filtering:
       self.filtering = nn.Linear(8, 200)
     if self.rb_feats > 0:
@@ -46,6 +54,7 @@ class BERTMTL(pl.LightningModule):
     else:
       self.out = ModuleList([nn.Linear(100, task_classes[i]) for i in range(self.num_tasks)])
     self.reset_iteration_stat_aggregator()
+    self.initial_task_loss = None
 
   def reset_iteration_stat_aggregator(self):
     self.iteration_stat_aggregator[f"train_loss"] = 0
@@ -109,14 +118,66 @@ class BERTMTL(pl.LightningModule):
     return loss, partial_losses, transp_targets, outputs
 
   def training_step(self, batch, batch_idx):
+    opt = self.optimizers()
     loss, partial_losses, _, _ = self.process_batch_get_losses(batch)
 
-    # Logging to TensorBoard by default
-    self.iteration_stat_aggregator["train_loss"] += loss
-    for i, task in enumerate(self.task_names):
-      self.iteration_stat_aggregator[f"{task}_train_loss"] += partial_losses[i]
-    self.train_iter_counter += 1
+    if self.initial_task_loss is None:
+      self.initial_task_loss = torch.Tensor([l.data.cpu() for l in partial_losses])
+    opt.zero_grad()
+    self.manual_backward(loss, retain_graph=True)
 
+    self.task_level_weights.grad.zero_()
+
+    W = self.tmp1
+    # get the gradient norms for each of the tasks
+    # G^{(i)}_w(t)
+    norms = []
+    for i in range(len(partial_losses)):
+      # get the gradient of this task loss with respect to the shared parameters
+      gygw = torch.autograd.grad(partial_losses[i], W.parameters(), retain_graph=True)
+      # compute the norm
+      norms.append(torch.norm(torch.mul(self.task_level_weights[i], gygw[0])))
+    norms = torch.stack(norms)
+    # print('G_w(t): {}'.format(norms))
+
+    # compute the inverse training rate r_i(t)
+    # \curl{L}_i
+    if torch.cuda.is_available():
+      loss_ratio = torch.Tensor([l.data.cpu().numpy() / self.initial_task_loss[i] for i, l in enumerate(partial_losses)])
+    else:
+      loss_ratio = torch.Tensor([l.data.numpy() / self.initial_task_loss[i] for i, l in enumerate(partial_losses)])
+    # r_i(t)
+    inverse_train_rate = loss_ratio / loss_ratio.mean()
+    # print('r_i(t): {}'.format(inverse_train_rate))
+
+    # compute the mean norm \tilde{G}_w(t)
+    if torch.cuda.is_available():
+      mean_norm = np.mean(norms.data.cpu().numpy())
+    else:
+      mean_norm = np.mean(norms.data.numpy())
+    # print('tilde G_w(t): {}'.format(mean_norm))
+
+    # compute the GradNorm loss
+    # this term has to remain constant
+    alpha = 0.12
+    constant_term = torch.tensor(mean_norm * (inverse_train_rate ** 0.12), requires_grad=False)
+    if torch.cuda.is_available():
+      constant_term = constant_term.cuda()
+    # print('Constant term: {}'.format(constant_term))
+    # this is the GradNorm loss itself
+    grad_norm_loss = torch.sum(torch.abs(norms - constant_term))
+    # print('GradNorm loss {}'.format(grad_norm_loss))
+
+    # compute the gradient for the weights
+    self.task_level_weights.grad = torch.autograd.grad(grad_norm_loss, self.task_level_weights)[0]
+
+    # Logging to TensorBoard by default
+    self.iteration_stat_aggregator["train_loss"] += loss.item()
+    for i, task in enumerate(self.task_names):
+      self.iteration_stat_aggregator[f"{task}_train_loss"] += partial_losses[i].item()
+    self.train_iter_counter += 1
+    opt.step()
+    print(f"|{grad_norm_loss}|{self.task_level_weights.grad}|{self.task_level_weights}")
     return loss
 
   def validation_step(self, batch, batch_idx):
@@ -199,8 +260,8 @@ class BERTMTL(pl.LightningModule):
       self.reset_iteration_stat_aggregator()
       self.log(f"acc_{self.task_names[i]}", acc(filtered_outputs, filtered_targets))
       self.log(f"f1_{self.task_names[i]}", f1(filtered_outputs, filtered_targets))
-      self.log("LR", self.scheduler.get_lr()[0])
-      print("LR", self.scheduler.get_lr())
+      # self.log("LR", self.scheduler.get_lr()[0])
+      # print("LR", self.scheduler.get_lr())
       print(confusion_matrix(filtered_targets, filtered_outputs))
       print(classification_report(filtered_targets, filtered_outputs))
 
@@ -222,14 +283,16 @@ class BERTMTL(pl.LightningModule):
       {'params': [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay) and n.find("bert") == -1],
        'weight_decay': 0.0}
     ]
-    optimizer = optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
-    self.scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.num_epochs//5, num_training_steps=self.num_epochs)
+    # optimizer = optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
+    optimizer = optim.Adam(self.parameters(), lr=1e-3)
+    # scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.num_epochs//5, num_training_steps=self.num_epochs)
 
-    # optimizer = optim.Adam(self.parameters(), lr=1e-3)
     return {
             'optimizer': optimizer,
-            'lr_scheduler': {
-                'scheduler': self.scheduler,
-                'interval': 'epoch'
-                }
+            # 'lr_scheduler': {
+            #     'scheduler': scheduler,
+            #     'interval': 'epoch'
+            #     }
             }
+
+    # return [optimizer], [{"scheduler": self.scheduler, "interval": "step"}]
