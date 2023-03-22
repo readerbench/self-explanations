@@ -1,0 +1,10 @@
+Bootstrap: docker
+From: pytorch/pytorch
+
+%post
+    pip install -e requiremets.txt
+%environment
+    export TF_FORCE_GPU_ALLOW_GROWTH=true
+
+%runscript
+    python scripts/test.py
