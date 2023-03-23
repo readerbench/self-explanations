@@ -178,15 +178,15 @@ class BERTMTL(pl.LightningModule):
     self.train_iter_counter += 1
     opt.step()
     print(f"{self.task_level_weights} | {self.task_level_weights.sum()}")
+    tw = self.task_level_weights.data.cpu().numpy()
+    for i in range(len(tw)):
+      self.log(f"task_{i}_weight", tw[i])
     return loss
 
   def on_train_epoch_end(self):
     print(f"Reached epoch {self.current_epoch} end.")
     sch = self.lr_schedulers()
-    print("LR", sch.get_lr())
     sch.step()
-    print("LR", sch.get_lr())
-
     self.log("LR", sch.get_lr()[0])
 
   def validation_step(self, batch, batch_idx):
@@ -295,7 +295,7 @@ class BERTMTL(pl.LightningModule):
        'weight_decay': 0.0}
     ]
     optimizer = optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
-    # optimizer = optim.Adam(self.parameters(), lr=1e-3)
+
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.num_epochs//5, num_training_steps=self.num_epochs)
     scheduler.step()
     return {
@@ -306,4 +306,3 @@ class BERTMTL(pl.LightningModule):
                 }
             }
 
-    # return [optimizer], [{"scheduler": self.scheduler, "interval": "step"}]
