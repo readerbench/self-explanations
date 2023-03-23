@@ -136,6 +136,6 @@ def create_data_loader(df, tokenizer, max_len, batch_size, num_tasks, use_rb_fea
   return DataLoader(
     ds,
     batch_size=batch_size,
-    num_workers=0,
+    num_workers=4,
     shuffle=True
   )

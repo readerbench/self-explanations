@@ -10,12 +10,12 @@ from transformers import BertModel, RobertaModel, get_linear_schedule_with_warmu
 from torch.nn import functional as F
 from torch.nn import ModuleList
 from torchmetrics import F1Score, Accuracy
-
+from torch.nn.functional import normalize
 from core.data_processing.se_dataset import SelfExplanations
 
 
 class BERTMTL(pl.LightningModule):
-  def __init__(self, task_names, pretrained_bert_model, rb_feats=0, task_weights=None, task_level_weights=[], lr=1e-3,
+  def __init__(self, task_names, pretrained_bert_model, rb_feats=0, task_sample_weights=None, task_imp_weights=[], lr=1e-3,
                num_epochs=15, use_filtering=False, use_grad_norm=True):
     super().__init__()
     self.automatic_optimization = False
@@ -32,14 +32,18 @@ class BERTMTL(pl.LightningModule):
     task_classes = [SelfExplanations.MTL_CLASS_DICT[x] for x in self.task_names]
     self.num_tasks = len(task_names)
     if self.use_grad_norm:
-      self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float() * (1.0 / self.num_tasks))
-      # self.task_level_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float())
+      if len(task_imp_weights) == 0:
+        self.task_imp_weights = torch.nn.Parameter(torch.ones(self.num_tasks).float())
+        self.task_normalizer = self.num_tasks
+      else:
+        self.task_imp_weights = torch.nn.Parameter(torch.Tensor(task_imp_weights))
+        self.task_normalizer = sum(task_imp_weights)
     else:
-      self.task_level_weights = [1 for _ in range(self.num_tasks)] if len(task_level_weights) < self.num_tasks else task_level_weights
+      self.task_imp_weights = [1 for _ in range(self.num_tasks)] if len(task_imp_weights) < self.num_tasks else task_imp_weights
     self.iteration_stat_aggregator = OrderedDict()
     self.train_iter_counter = 0
     self.val_iter_counter = 0
-    self.task_weights = task_weights
+    self.task_sample_weights = task_sample_weights
     self.loss_f = None
     self.lr = lr
     self.num_epochs = num_epochs
@@ -71,11 +75,11 @@ class BERTMTL(pl.LightningModule):
       attention_mask=attention_mask
     )
 
-    x = F.tanh(self.tmp1(pooled_output))
+    x = torch.tanh(self.tmp1(pooled_output))
     x = self.drop(x)
 
     if self.rb_feats > 0:
-      feats = F.tanh(self.rb_feats_in(rb_feats_data))
+      feats = torch.tanh(self.rb_feats_in(rb_feats_data))
       x = torch.cat([feats, x], dim=1)
     if self.filtering:
       x = x * F.sigmoid(self.filtering(filter_data))
@@ -103,8 +107,8 @@ class BERTMTL(pl.LightningModule):
         outputs = self(input_ids, attention_mask)
 
     if self.loss_f is None:
-      if self.task_weights is not None:
-        self.loss_f = [nn.CrossEntropyLoss(weight=self.task_weights[i].to(input_ids.device)) for i in range(self.num_tasks)]
+      if self.task_sample_weights is not None:
+        self.loss_f = [nn.CrossEntropyLoss(weight=self.task_sample_weights[i].to(input_ids.device)) for i in range(self.num_tasks)]
       else:
         self.loss_f = [nn.CrossEntropyLoss() for _ in range(self.num_tasks)]
     partial_losses = [0 for _ in range(self.num_tasks)]
@@ -113,63 +117,57 @@ class BERTMTL(pl.LightningModule):
     for task_id in range(self.num_tasks):
       task_mask = transp_targets[task_id] != 9
       partial_losses[task_id] += self.loss_f[task_id](outputs[task_id][task_mask], transp_targets[task_id][task_mask])
-    loss = sum([partial_losses[i] * self.task_level_weights[i] for i in range(len(partial_losses))])
+    loss = sum([partial_losses[i] * self.task_imp_weights[i] for i in range(len(partial_losses))])
 
     return loss, partial_losses, transp_targets, outputs
 
   def training_step(self, batch, batch_idx):
+    if self.use_grad_norm:
+      return self.gradnorm_training_step(batch)
+    return self.classic_training_step(batch)
+
+  def classic_training_step(self, batch):
+    loss, partial_losses, _, _ = self.process_batch_get_losses(batch)
+
+    # Logging to TensorBoard by default
+    self.iteration_stat_aggregator["train_loss"] += loss
+    for i, task in enumerate(self.task_names):
+      self.iteration_stat_aggregator[f"{task}_train_loss"] += partial_losses[i]
+    self.train_iter_counter += 1
+
+    return loss
+
+  def gradnorm_training_step(self, batch):
     opt = self.optimizers()
     loss, partial_losses, _, _ = self.process_batch_get_losses(batch)
 
     if self.initial_task_loss is None:
       self.initial_task_loss = torch.Tensor([l.data.cpu() for l in partial_losses])
+
     opt.zero_grad()
     self.manual_backward(loss, retain_graph=True)
 
-    self.task_level_weights.grad.zero_()
-
-    W = self.tmp1
+    self.task_imp_weights.grad.zero_()
     # get the gradient norms for each of the tasks
-    # G^{(i)}_w(t)
     norms = []
     for i in range(len(partial_losses)):
       # get the gradient of this task loss with respect to the shared parameters
-      gygw = torch.autograd.grad(partial_losses[i], W.parameters(), retain_graph=True)
+      gygw = torch.autograd.grad(partial_losses[i], self.tmp1.parameters(), retain_graph=True)
       # compute the norm
-      norms.append(torch.norm(torch.mul(self.task_level_weights[i], gygw[0])))
+      norms.append(torch.norm(torch.mul(self.task_imp_weights[i], gygw[0])))
     norms = torch.stack(norms)
-    # print('G_w(t): {}'.format(norms))
 
     # compute the inverse training rate r_i(t)
-    # \curl{L}_i
-    if torch.cuda.is_available():
-      loss_ratio = torch.Tensor([l.data.cpu().numpy() / self.initial_task_loss[i] for i, l in enumerate(partial_losses)])
-    else:
-      loss_ratio = torch.Tensor([l.data.numpy() / self.initial_task_loss[i] for i, l in enumerate(partial_losses)])
-    # r_i(t)
-    inverse_train_rate = loss_ratio / loss_ratio.mean()
-    # print('r_i(t): {}'.format(inverse_train_rate))
+    loss_ratio = torch.Tensor([l.data.detach() / self.initial_task_loss[i] for i, l in enumerate(partial_losses)])
 
-    # compute the mean norm \tilde{G}_w(t)
-    if torch.cuda.is_available():
-      mean_norm = np.mean(norms.data.cpu().numpy())
-    else:
-      mean_norm = np.mean(norms.data.numpy())
-    # print('tilde G_w(t): {}'.format(mean_norm))
+    inverse_train_rate = loss_ratio / loss_ratio.mean()
+    mean_norm = norms.mean().item()
 
     # compute the GradNorm loss
-    # this term has to remain constant
     alpha = 0.12
-    constant_term = torch.tensor(mean_norm * (inverse_train_rate ** 0.12), requires_grad=False)
-    if torch.cuda.is_available():
-      constant_term = constant_term.cuda()
-    # print('Constant term: {}'.format(constant_term))
-    # this is the GradNorm loss itself
-    grad_norm_loss = torch.sum(torch.abs(norms - constant_term)) + torch.abs(1 - self.task_level_weights.sum())
-    # print('GradNorm loss {}'.format(grad_norm_loss))
-
-    # compute the gradient for the weights
-    self.task_level_weights.grad = torch.autograd.grad(grad_norm_loss, self.task_level_weights)[0]
+    constant_term = torch.tensor(mean_norm * (inverse_train_rate ** alpha), requires_grad=False).type_as(self.task_imp_weights)
+    grad_norm_loss = torch.sum(torch.abs(norms - constant_term))
+    self.task_imp_weights.grad = torch.autograd.grad(grad_norm_loss, self.task_imp_weights)[0]
 
     # Logging to TensorBoard by default
     self.iteration_stat_aggregator["train_loss"] += loss.item()
@@ -177,8 +175,10 @@ class BERTMTL(pl.LightningModule):
       self.iteration_stat_aggregator[f"{task}_train_loss"] += partial_losses[i].item()
     self.train_iter_counter += 1
     opt.step()
-    print(f"{self.task_level_weights} | {self.task_level_weights.sum()}")
-    tw = self.task_level_weights.data.cpu().numpy()
+
+    self.task_imp_weights.data.copy_(normalize(self.task_imp_weights.data, p=1, dim=0) * self.task_normalizer)
+    tw = self.task_imp_weights.data.cpu().numpy()
+
     for i in range(len(tw)):
       self.log(f"task_{i}_weight", tw[i])
     return loss
@@ -248,7 +248,6 @@ class BERTMTL(pl.LightningModule):
     task_targets = [[] for _ in range(self.num_tasks)]
     task_outputs = [[] for _ in range(self.num_tasks)]
 
-    print(f"@@@|{self.task_level_weights.grad}|{self.task_level_weights}")
     for i in range(self.num_tasks):
       for j in range(len(targets)):
         task_targets[i].append(targets[j][i])
@@ -284,11 +283,11 @@ class BERTMTL(pl.LightningModule):
       {'params': [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay) and n.find("bert") != -1],
        'weight_decay': 0.0, 'lr': 1e-5},
       # task-level weights
-      {'params': [p for n, p in self.named_parameters() if n.find("task_level_weights") != -1],
+      {'params': [p for n, p in self.named_parameters() if n.find("task_imp_weights") != -1],
        'weight_decay': 0.0001, 'lr': 1e-2},
       # non-BERT params - with WD
       {'params': [p for n, p in self.named_parameters() if
-                  not any(nd in n for nd in no_decay) and n.find("bert") == -1 and n.find("task_level_weights") == -1],
+                  not any(nd in n for nd in no_decay) and n.find("bert") == -1 and n.find("task_imp_weights") == -1],
        'weight_decay': 0.0001},
       # non-BERT params - no WD
       {'params': [p for n, p in self.named_parameters() if any(nd in n for nd in no_decay) and n.find("bert") == -1],
