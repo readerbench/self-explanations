@@ -136,7 +136,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
 def objective(trial):
     class_weighting = trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-    hidden_units = trial.suggest_int("max_epochs", 50, 500, step=25)
+    hidden_units = trial.suggest_int("hidden_units", 50, 500, step=25)
     # filtering = trial.suggest_categorical("filtering", ["true", "false"])
     grad_norm = trial.suggest_categorical("grad_norm", ["true", "false"])
 
