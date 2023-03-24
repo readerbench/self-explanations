@@ -13,3 +13,5 @@ seaborn
 rbpy-rb
 transformers
 pytorch-lightning
+wandb
+optuna

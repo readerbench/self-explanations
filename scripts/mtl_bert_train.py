@@ -1,4 +1,7 @@
 import os.path
+import wandb
+import optuna
+import random
 
 import pandas as pd
 import numpy as np
@@ -11,6 +14,7 @@ from core.models.mtl import BERTMTL
 from core.data_processing.se_dataset import SelfExplanations, create_data_loader
 from sklearn.model_selection import train_test_split
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
 
 transformers.logging.set_verbosity_error()
 
@@ -70,21 +74,21 @@ def filter_rb_df(df):
 
 
 def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_epochs=20, task_name="none",
-               use_filtering=True, use_grad_norm=True):
+               use_filtering=True, use_grad_norm=True, trial=None, hidden_units=100):
     if task_name == "none":
         num_tasks = 4
     else:
         num_tasks = 1
     predefined_version = ""
     MAX_LEN_P = 80
-    BATCH_SIZE = 128
+    BATCH_SIZE = 32
     if "roberta" in bert_model:
         tokenizer = RobertaTokenizer.from_pretrained(bert_model)
     else:
         tokenizer = BertTokenizer.from_pretrained(bert_model)
 
     self_explanations = SelfExplanations()
-    self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_v2.csv")
+    self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_2.csv")
 
     self_explanations.df = filter_rb_df(self_explanations.df)
 
@@ -117,26 +121,56 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="test_loss", every_n_epochs=10)
     model = BERTMTL(task_names, bert_model, rb_feats=rb_feats, task_sample_weights=task_sample_weights,
                     task_imp_weights=task_imp_weights, lr=lr, num_epochs=num_epochs, use_filtering=use_filtering,
-                    use_grad_norm=use_grad_norm)
+                    use_grad_norm=use_grad_norm, trial=trial, hidden_units=hidden_units)
 
     trainer = pl.Trainer(
         accelerator="auto",
         callbacks=[checkpoint_callback],
+        logger=WandbLogger(),
         devices=1 if torch.cuda.is_available() else None,  # limiting got iPython runs
-        # limit_train_batches=50,
+        # limit_train_batches=10,
         max_epochs=num_epochs)
     trainer.fit(model, train_dataloaders=train_data_loader, val_dataloaders=val_data_loader)
+    return model.last_loss
+
+def objective(trial):
+    class_weighting = trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
+    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
+    hidden_units = trial.suggest_int("max_epochs", 50, 500, step=25)
+    # filtering = trial.suggest_categorical("filtering", ["true", "false"])
+    grad_norm = trial.suggest_categorical("grad_norm", ["true", "false"])
+
+    config = dict(trial.params)
+    config["trial.number"] = trial.number
+    wandb.init(
+        project="optuna",
+        entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+        config=config,
+        group="param-search",
+        reinit=True,
+    )
+    loss = experiment([int(c) for c in class_weighting[1:-1].split(",")], bert_model="roberta-base",
+                      lr=lr, num_epochs=30, use_grad_norm=grad_norm, use_filtering=True, trial=trial, hidden_units=hidden_units)
+
+
+    # report the final validation accuracy to wandb
+    wandb.run.summary["final loss"] = loss
+    wandb.run.summary["state"] = "completed"
+    wandb.finish(quiet=True)
+
+    return loss
+
+
 
 if __name__ == '__main__':
-    print("=" * 33)
-    experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=True)
-    print("=" * 33)
-    experiment([1, 1, 1, 1], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=True)
+    study = optuna.create_study(
+        direction="minimize",
+        study_name="param-search-study",
+        pruner=optuna.pruners.MedianPruner(),
+    )
+    study.optimize(objective, n_trials=100, timeout=600)
+
     # print("=" * 33)
-    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, task_name="paraphrasepresence")
+    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)
     # print("=" * 33)
-    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, task_name="bridgepresence")
-    # print("=" * 33)
-    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, task_name="elaborationpresence")
-    # print("=" * 33)
-    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, task_name="overall")
+    # experiment([1, 1, 1, 1], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=True)

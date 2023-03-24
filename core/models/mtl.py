@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import wandb
 
 import torch
 import torch.nn as nn
@@ -12,13 +13,14 @@ from torch.nn import ModuleList
 from torchmetrics import F1Score, Accuracy
 from torch.nn.functional import normalize
 from core.data_processing.se_dataset import SelfExplanations
-
+import optuna
 
 class BERTMTL(pl.LightningModule):
   def __init__(self, task_names, pretrained_bert_model, rb_feats=0, task_sample_weights=None, task_imp_weights=[], lr=1e-3,
-               num_epochs=15, use_filtering=False, use_grad_norm=True):
+               hidden_units=100, num_epochs=15, use_filtering=False, use_grad_norm=True, trial=None):
     super().__init__()
-    self.automatic_optimization = False
+    self.automatic_optimization = not use_grad_norm
+    self.trial = trial
     if "roberta" in pretrained_bert_model:
       print(f"Training RoBERTa lr={lr}")
       self.bert = RobertaModel.from_pretrained(pretrained_bert_model, return_dict=False)
@@ -27,7 +29,7 @@ class BERTMTL(pl.LightningModule):
       self.bert = BertModel.from_pretrained(pretrained_bert_model, return_dict=False)
     self.use_grad_norm = use_grad_norm
     self.drop = nn.Dropout(p=0.2)
-    self.tmp1 = nn.Linear(self.bert.config.hidden_size, 100)
+    self.tmp1 = nn.Linear(self.bert.config.hidden_size, hidden_units)
     self.task_names = task_names
     task_classes = [SelfExplanations.MTL_CLASS_DICT[x] for x in self.task_names]
     self.num_tasks = len(task_names)
@@ -50,15 +52,18 @@ class BERTMTL(pl.LightningModule):
     self.rb_feats = rb_feats
     self.use_filtering = use_filtering
     self.filtering = None
-    if use_filtering:
-      self.filtering = nn.Linear(8, 200)
     if self.rb_feats > 0:
-      self.rb_feats_in = nn.Linear(self.rb_feats, 100)
-      self.out = ModuleList([nn.Linear(200, task_classes[i]) for i in range(self.num_tasks)])
+      if use_filtering:
+        self.filtering = nn.Linear(8, 2 * hidden_units)
+      self.rb_feats_in = nn.Linear(self.rb_feats, hidden_units)
+      self.out = ModuleList([nn.Linear(2 * hidden_units, task_classes[i]) for i in range(self.num_tasks)])
     else:
-      self.out = ModuleList([nn.Linear(100, task_classes[i]) for i in range(self.num_tasks)])
+      if use_filtering:
+        self.filtering = nn.Linear(8, hidden_units)
+      self.out = ModuleList([nn.Linear(hidden_units, task_classes[i]) for i in range(self.num_tasks)])
     self.reset_iteration_stat_aggregator()
     self.initial_task_loss = None
+    self.last_loss = 0
 
   def reset_iteration_stat_aggregator(self):
     self.iteration_stat_aggregator[f"train_loss"] = 0
@@ -177,17 +182,14 @@ class BERTMTL(pl.LightningModule):
     opt.step()
 
     self.task_imp_weights.data.copy_(normalize(self.task_imp_weights.data, p=1, dim=0) * self.task_normalizer)
-    tw = self.task_imp_weights.data.cpu().numpy()
 
-    for i in range(len(tw)):
-      self.log(f"task_{i}_weight", tw[i])
     return loss
 
   def on_train_epoch_end(self):
     print(f"Reached epoch {self.current_epoch} end.")
-    sch = self.lr_schedulers()
-    sch.step()
-    self.log("LR", sch.get_lr()[0])
+    if not self.automatic_optimization:
+      sch = self.lr_schedulers()
+      sch.step()
 
   def validation_step(self, batch, batch_idx):
     loss, partial_losses, transp_targets, outputs = self.process_batch_get_losses(batch)
@@ -259,18 +261,33 @@ class BERTMTL(pl.LightningModule):
       filtered_targets = task_targets[i][task_mask].int()
       filtered_outputs = task_outputs[i][task_mask].int()
       f1 = F1Score(num_classes=SelfExplanations.MTL_CLASS_DICT[self.task_names[i]])
-      acc = Accuracy()
 
       for key in self.iteration_stat_aggregator:
         if key.endswith("test_loss") and self.val_iter_counter > 0:
           self.log(key, self.iteration_stat_aggregator[key] / self.val_iter_counter)
         elif self.train_iter_counter > 0:
           self.log(key, self.iteration_stat_aggregator[key] / self.train_iter_counter)
+
       self.reset_iteration_stat_aggregator()
-      self.log(f"acc_{self.task_names[i]}", acc(filtered_outputs, filtered_targets))
       self.log(f"f1_{self.task_names[i]}", f1(filtered_outputs, filtered_targets))
+      tw = self.task_imp_weights.data.cpu().numpy()
+      for i in range(len(tw)):
+        self.log(f"task_{i}_weight", tw[i])
+
+      self.log("LR", self.lr_schedulers().get_last_lr()[0])
       print(confusion_matrix(filtered_targets, filtered_outputs))
       print(classification_report(filtered_targets, filtered_outputs))
+
+      if self.val_iter_counter > 0:
+        test_loss = self.iteration_stat_aggregator["test_loss"] / self.val_iter_counter
+        self.last_loss = test_loss
+        if self.trial is not None and self.current_epoch % 5 == 0 and self.current_epoch > 5:
+          self.trial.report(test_loss, self.current_epoch)
+          # Handle pruning based on the intermediate value.
+          if self.trial.should_prune():
+            wandb.run.summary["state"] = "pruned"
+            wandb.finish(quiet=True)
+            raise optuna.exceptions.TrialPruned()
 
   def configure_optimizers(self):
     no_decay = ['bias', 'LayerNorm.weight']
