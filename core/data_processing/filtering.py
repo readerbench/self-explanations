@@ -4,11 +4,8 @@ from importlib_metadata import Pair
 from nltk import ngrams
 from pandas import DataFrame
 
-
 from rb import Lang
 from rb.core.document import Document
-from rb.similarity.wordnet import leacock_chodorow_similarity
-
 
 class ZeroTags(Enum):
     FROZEN_EXPRESSIONS = "Frozen expressions are more than 75% of the entire SE"

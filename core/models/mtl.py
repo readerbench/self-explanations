@@ -10,7 +10,7 @@ from torch import optim
 from transformers import BertModel, RobertaModel, get_linear_schedule_with_warmup
 from torch.nn import functional as F
 from torch.nn import ModuleList
-from torchmetrics import F1Score, Accuracy
+from torchmetrics import F1Score
 from torch.nn.functional import normalize
 from core.data_processing.se_dataset import SelfExplanations
 import optuna
@@ -260,7 +260,7 @@ class BERTMTL(pl.LightningModule):
       task_mask = task_targets[i] != 9
       filtered_targets = task_targets[i][task_mask].int()
       filtered_outputs = task_outputs[i][task_mask].int()
-      f1 = F1Score(num_classes=SelfExplanations.MTL_CLASS_DICT[self.task_names[i]])
+      f1 = F1Score(task="multiclass", num_classes=SelfExplanations.MTL_CLASS_DICT[self.task_names[i]])
 
       for key in self.iteration_stat_aggregator:
         if key.endswith("test_loss") and self.val_iter_counter > 0:

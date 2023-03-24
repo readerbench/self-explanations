@@ -2,9 +2,11 @@ Bootstrap: docker
 From: pytorch/pytorch
 
 %post
-    pip install -e requiremets.txt
+    pip install wandb optuna numpy torch pandas scikit-learn xgboost distance pytorch_lightning rbpy-rb transformers
+    python3 -m spacy download en_core_web_lg
 %environment
     export TF_FORCE_GPU_ALLOW_GROWTH=true
+    export WANDB_API_KEY=$$$
 
 %runscript
-    python scripts/test.py
+    python scripts/mtl_bert_train.py
