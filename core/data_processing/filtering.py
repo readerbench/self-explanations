@@ -1,6 +1,5 @@
 import re
 from enum import Enum
-from importlib_metadata import Pair
 from nltk import ngrams
 from pandas import DataFrame
 
@@ -88,7 +87,7 @@ class ZeroRules:
                 index_of_separation = line.index(":")
                 frozen_expr_tag = line[0: index_of_separation]
                 regex = line[index_of_separation + 1:]
-                regex_list.append(Pair(frozen_expr_tag, re.compile(regex.strip(), re.A)))
+                regex_list.append((frozen_expr_tag, re.compile(regex.strip(), re.A)))
 
         return regex_list
 
