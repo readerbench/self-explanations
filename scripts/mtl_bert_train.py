@@ -81,7 +81,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
         num_tasks = 1
     predefined_version = ""
     MAX_LEN_P = 80
-    BATCH_SIZE = 32
+    BATCH_SIZE = 128
     if "roberta" in bert_model:
         tokenizer = RobertaTokenizer.from_pretrained(bert_model)
     else:
@@ -136,7 +136,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
 def objective(trial):
     class_weighting = trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-    hidden_units = trial.suggest_int("hidden_units", 50, 500, step=25)
+    hidden_units = trial.suggest_int("hidden_units", 50, 200, step=50)
     # filtering = trial.suggest_categorical("filtering", ["true", "false"])
     grad_norm = trial.suggest_categorical("grad_norm", ["true", "false"])
 
@@ -168,7 +168,7 @@ if __name__ == '__main__':
         study_name="param-search-study",
         pruner=optuna.pruners.MedianPruner(),
     )
-    study.optimize(objective, n_trials=100, timeout=600)
+    study.optimize(objective, n_trials=25, timeout=None)
 
     # print("=" * 33)
     # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)
