@@ -17,7 +17,7 @@ import optuna
 
 class BERTMTL(pl.LightningModule):
   def __init__(self, task_names, pretrained_bert_model, rb_feats=0, task_sample_weights=None, task_imp_weights=[], lr=1e-3,
-               hidden_units=100, num_epochs=15, use_filtering=False, use_grad_norm=True, trial=None):
+               hidden_units=100, num_epochs=15, use_filtering=False, use_grad_norm=True, trial=None, lr_warmup=5):
     super().__init__()
     self.automatic_optimization = not use_grad_norm
     self.trial = trial
@@ -48,6 +48,7 @@ class BERTMTL(pl.LightningModule):
     self.task_sample_weights = task_sample_weights
     self.loss_f = None
     self.lr = lr
+    self.lr_warmup = lr_warmup
     self.num_epochs = num_epochs
     self.rb_feats = rb_feats
     self.use_filtering = use_filtering
@@ -270,24 +271,28 @@ class BERTMTL(pl.LightningModule):
 
       self.reset_iteration_stat_aggregator()
       self.log(f"f1_{self.task_names[i]}", f1(filtered_outputs, filtered_targets))
+
+    if self.use_grad_norm:
       tw = self.task_imp_weights.data.cpu().numpy()
-      for i in range(len(tw)):
-        self.log(f"task_{i}_weight", tw[i])
+    else:
+      tw = self.task_imp_weights
+    for i in range(len(tw)):
+      self.log(f"task_{i}_weight", tw[i])
 
-      self.log("LR", self.lr_schedulers().get_last_lr()[0])
-      print(confusion_matrix(filtered_targets, filtered_outputs))
-      print(classification_report(filtered_targets, filtered_outputs))
+    self.log("LR", self.lr_schedulers().get_last_lr()[-1])
+    print(confusion_matrix(filtered_targets, filtered_outputs))
+    print(classification_report(filtered_targets, filtered_outputs))
 
-      if self.val_iter_counter > 0:
-        test_loss = self.iteration_stat_aggregator["test_loss"] / self.val_iter_counter
-        self.last_loss = test_loss
-        if self.trial is not None and self.current_epoch % 5 == 0 and self.current_epoch > 5:
-          self.trial.report(test_loss, self.current_epoch)
-          # Handle pruning based on the intermediate value.
-          if self.trial.should_prune():
-            wandb.run.summary["state"] = "pruned"
-            wandb.finish(quiet=True)
-            raise optuna.exceptions.TrialPruned()
+    if self.val_iter_counter > 0:
+      test_loss = self.iteration_stat_aggregator["test_loss"] / self.val_iter_counter
+      self.last_loss = test_loss
+      if self.trial is not None and self.current_epoch % 5 == 0 and self.current_epoch > 5:
+        self.trial.report(test_loss, self.current_epoch)
+        # Handle pruning based on the intermediate value.
+        if self.trial.should_prune():
+          wandb.run.summary["state"] = "pruned"
+          wandb.finish(quiet=True)
+          raise optuna.exceptions.TrialPruned()
 
   def configure_optimizers(self):
     no_decay = ['bias', 'LayerNorm.weight']
@@ -312,7 +317,7 @@ class BERTMTL(pl.LightningModule):
     ]
     optimizer = optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
 
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.num_epochs//5, num_training_steps=self.num_epochs)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.lr_warmup, num_training_steps=self.num_epochs)
     scheduler.step()
     return {
             'optimizer': optimizer,

@@ -74,7 +74,7 @@ def filter_rb_df(df):
 
 
 def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_epochs=20, task_name="none",
-               use_filtering=True, use_grad_norm=True, trial=None, hidden_units=100):
+               use_filtering=True, use_grad_norm=True, trial=None, hidden_units=100, lr_warmup=5):
     if task_name == "none":
         num_tasks = 4
     else:
@@ -121,7 +121,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="test_loss", every_n_epochs=10)
     model = BERTMTL(task_names, bert_model, rb_feats=rb_feats, task_sample_weights=task_sample_weights,
                     task_imp_weights=task_imp_weights, lr=lr, num_epochs=num_epochs, use_filtering=use_filtering,
-                    use_grad_norm=use_grad_norm, trial=trial, hidden_units=hidden_units)
+                    use_grad_norm=use_grad_norm, trial=trial, hidden_units=hidden_units, lr_warmup=lr_warmup)
 
     trainer = pl.Trainer(
         accelerator="auto",
@@ -134,9 +134,10 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     return model.last_loss
 
 def objective(trial):
-    class_weighting = trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
-    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-    hidden_units = trial.suggest_int("hidden_units", 50, 200, step=50)
+    class_weighting = "[2,2,1,5]"#trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
+    lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
+    lr_warmup = trial.suggest_int("lr_warmup", 3, 10, step=1)
+    # hidden_units = trial.suggest_int("hidden_units", 50, 200, step=50)
     # filtering = trial.suggest_categorical("filtering", ["true", "false"])
     grad_norm = trial.suggest_categorical("grad_norm", ["true", "false"])
 
@@ -146,11 +147,12 @@ def objective(trial):
         project="optuna",
         entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
         config=config,
-        group="param-search",
+        group="param-search-v2",
         reinit=True,
     )
     loss = experiment([int(c) for c in class_weighting[1:-1].split(",")], bert_model="roberta-base",
-                      lr=lr, num_epochs=30, use_grad_norm=grad_norm, use_filtering=True, trial=trial, hidden_units=hidden_units)
+                      lr=lr, num_epochs=30, use_grad_norm=grad_norm == "true", use_filtering=True, trial=trial,
+                      hidden_units=150, lr_warmup=lr_warmup)
 
 
     # report the final validation accuracy to wandb
