@@ -22,7 +22,7 @@ def map_train_test(x):
     if x['Dataset'] in ['ASU 5']:
         return 'test'
     if x['Dataset'] == 'CRaK':
-        return 'train'
+        return 'dump'
     if x['Dataset'] == 'ASU 1':
         if x['PrePost'] == 'Post':
             return 'dev'
@@ -118,7 +118,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
         total = len(df_aux[task_name]) * 1.0
         task_sample_weights.append(torch.Tensor([total / values[i] if i in values else 0 for i in range(SelfExplanations.MTL_CLASS_DICT[task_name])]))
 
-    checkpoint_callback = ModelCheckpoint(save_top_k=3, monitor="test_loss", every_n_epochs=10)
+    checkpoint_callback = ModelCheckpoint(save_top_k=1, monitor="test_loss", every_n_epochs=10)
     model = BERTMTL(task_names, bert_model, rb_feats=rb_feats, task_sample_weights=task_sample_weights,
                     task_imp_weights=task_imp_weights, lr=lr, num_epochs=num_epochs, use_filtering=use_filtering,
                     use_grad_norm=use_grad_norm, trial=trial, hidden_units=hidden_units, lr_warmup=lr_warmup)
@@ -135,11 +135,11 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
 
 def objective(trial):
     class_weighting = "[2,2,1,5]"#trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
-    lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-    lr_warmup = trial.suggest_int("lr_warmup", 3, 10, step=1)
+    lr = trial.suggest_float("lr", 5e-4, 2e-3, log=True)
+    lr_warmup = trial.suggest_int("lr_warmup", 6, 9, step=1)
     # hidden_units = trial.suggest_int("hidden_units", 50, 200, step=50)
     # filtering = trial.suggest_categorical("filtering", ["true", "false"])
-    grad_norm = trial.suggest_categorical("grad_norm", ["true", "false"])
+    grad_norm = "true" # trial.suggest_categorical("grad_norm", ["true", "false"])
 
     config = dict(trial.params)
     config["trial.number"] = trial.number
@@ -147,7 +147,7 @@ def objective(trial):
         project="optuna",
         entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
         config=config,
-        group="param-search-v2",
+        group="param-search-v3",
         reinit=True,
     )
     loss = experiment([int(c) for c in class_weighting[1:-1].split(",")], bert_model="roberta-base",
@@ -170,7 +170,7 @@ if __name__ == '__main__':
         study_name="param-search-study",
         pruner=optuna.pruners.MedianPruner(),
     )
-    study.optimize(objective, n_trials=25, timeout=None)
+    study.optimize(objective, n_trials=15, timeout=None)
 
     # print("=" * 33)
     # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)
