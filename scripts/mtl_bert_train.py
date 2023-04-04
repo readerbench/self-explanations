@@ -20,10 +20,12 @@ transformers.logging.set_verbosity_error()
 
 def map_train_test(x):
     if x['Dataset'] in ['ASU 5']:
-        return 'test'
+        return 'train'
     if x['Dataset'] == 'CRaK':
         return 'dump'
     if x['Dataset'] == 'ASU 1':
+        if 'RBC' in x['TextID'].upper():
+            return 'test'
         if x['PrePost'] == 'Post':
             return 'dev'
         return 'train'
@@ -134,12 +136,12 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     return model.last_loss
 
 def objective(trial):
-    class_weighting = "[2,2,1,5]"#trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
+    class_weighting = trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
     lr = trial.suggest_float("lr", 1e-4, 5e-3, log=True)
-    lr_warmup = trial.suggest_int("lr_warmup", 5, 10, step=1)
-    # hidden_units = trial.suggest_int("hidden_units", 50, 200, step=50)
-    # filtering = trial.suggest_categorical("filtering", ["true", "false"])
-    grad_norm = "true" # trial.suggest_categorical("grad_norm", ["true", "false"])
+    # lr_warmup = trial.suggest_int("lr_warmup", 5, 10, step=1)
+    hidden_units = trial.suggest_int("hidden_units", 50, 200, step=50)
+    filtering = trial.suggest_categorical("filtering", ["true", "false"])
+    grad_norm = trial.suggest_categorical("grad_norm", ["true", "false"])
 
     config = dict(trial.params)
     config["trial.number"] = trial.number
@@ -151,8 +153,8 @@ def objective(trial):
         reinit=True,
     )
     loss = experiment([int(c) for c in class_weighting[1:-1].split(",")], bert_model="roberta-base",
-                      lr=lr, num_epochs=40, use_grad_norm=grad_norm == "true", use_filtering=True, trial=trial,
-                      hidden_units=100, lr_warmup=lr_warmup)
+                      lr=lr, num_epochs=25, use_grad_norm=grad_norm == "true", use_filtering=filtering, trial=trial,
+                      hidden_units=hidden_units, lr_warmup=5)
 
 
     # report the final validation accuracy to wandb
@@ -162,15 +164,35 @@ def objective(trial):
 
     return loss
 
+def legacy_exp():
+    config = {"trial.number": -1}
+    wandb.init(
+        project="optuna",
+        entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+        config=config,
+        group="param-search-v4",
+        reinit=True,
+    )
+    loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=False,
+                      use_filtering=True,
+                      trial=None, hidden_units=100, lr_warmup=5)
+
+    # report the final validation accuracy to wandb
+    wandb.run.summary["final loss"] = loss
+    wandb.run.summary["state"] = "completed"
+    wandb.finish(quiet=True)
 
 
 if __name__ == '__main__':
+    legacy_exp()
+
     study = optuna.create_study(
         direction="minimize",
-        study_name="param-search-study",
+        study_name="param-search-study-v4",
         pruner=optuna.pruners.MedianPruner(),
     )
-    study.optimize(objective, n_trials=10, timeout=None)
+
+    study.optimize(objective, n_trials=40, timeout=None)
 
     # print("=" * 33)
     # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)
