@@ -184,15 +184,15 @@ def legacy_exp():
 
 
 if __name__ == '__main__':
-    # legacy_exp()
+    legacy_exp()
 
     study = optuna.create_study(
         direction="minimize",
-        study_name="param-search-study-v4",
+        study_name="param-search-study-v6",
         pruner=optuna.pruners.MedianPruner(),
     )
 
-    study.optimize(objective, n_trials=20, timeout=None)
+    study.optimize(objective, n_trials=30, timeout=None)
 
     # print("=" * 33)
     # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)

@@ -287,14 +287,9 @@ class BERTMTL(pl.LightningModule):
         self.log(f"max_f1_overall", self.max_f1_ov)
         self.log(f"max_f1_overall_epoch", self.max_f1_ov_epoch)
 
-    f1_avg = f1_acc / self.num_tasks
-    self.log(f"f1_avg", f1_avg)
-    if f1_avg > self.max_f1_avg:
-      self.max_f1_avg = f1_avg
-      self.max_f1_epoch = self.current_epoch
-    self.log(f"max_f1_avg", self.max_f1_avg)
-    self.log(f"max_f1_epoch", self.max_f1_epoch)
-
+      self.log("LR", self.lr_schedulers().get_last_lr()[-1])
+      print(confusion_matrix(filtered_targets, filtered_outputs))
+      print(classification_report(filtered_targets, filtered_outputs))
 
     if self.use_grad_norm:
       tw = self.task_imp_weights.data.cpu().numpy()
@@ -303,9 +298,13 @@ class BERTMTL(pl.LightningModule):
     for i in range(len(tw)):
       self.log(f"task_{i}_weight", tw[i])
 
-    self.log("LR", self.lr_schedulers().get_last_lr()[-1])
-    print(confusion_matrix(filtered_targets, filtered_outputs))
-    print(classification_report(filtered_targets, filtered_outputs))
+    f1_avg = f1_acc / self.num_tasks
+    self.log(f"f1_avg", f1_avg)
+    if f1_avg > self.max_f1_avg:
+      self.max_f1_avg = f1_avg
+      self.max_f1_epoch = self.current_epoch
+    self.log(f"max_f1_avg", self.max_f1_avg)
+    self.log(f"max_f1_epoch", self.max_f1_epoch)
 
     if self.val_iter_counter > 0:
       test_loss = self.iteration_stat_aggregator["test_loss"] / self.val_iter_counter
