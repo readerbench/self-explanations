@@ -182,17 +182,35 @@ def legacy_exp():
     wandb.run.summary["state"] = "completed"
     wandb.finish(quiet=True)
 
+def best_so_far():
+    config = {"trial.number": -2}
+    wandb.init(
+        project="optuna-a100",
+        entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+        config=config,
+        group="param-search-v2",
+        reinit=True,
+    )
+    loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=127e-6, num_epochs=25, use_grad_norm=True,
+                      use_filtering=True,
+                      trial=None, hidden_units=125, lr_warmup=5)
+
+    # report the final validation accuracy to wandb
+    wandb.run.summary["final loss"] = loss
+    wandb.run.summary["state"] = "completed"
+    wandb.finish(quiet=True)
+
 
 if __name__ == '__main__':
-    legacy_exp()
-
-    study = optuna.create_study(
-        direction="minimize",
-        study_name="param-search-study-v6",
-        pruner=optuna.pruners.MedianPruner(),
-    )
-
-    study.optimize(objective, n_trials=30, timeout=None)
+    # legacy_exp()
+    best_so_far()
+    # study = optuna.create_study(
+    #     direction="minimize",
+    #     study_name="param-search-study-v6",
+    #     pruner=optuna.pruners.MedianPruner(),
+    # )
+    #
+    # study.optimize(objective, n_trials=30, timeout=None)
 
     # print("=" * 33)
     # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)
