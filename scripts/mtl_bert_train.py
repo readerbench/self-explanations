@@ -164,23 +164,44 @@ def objective(trial):
 
     return loss
 
-def legacy_exp():
-    config = {"trial.number": -1}
-    wandb.init(
-        project="optuna-a100",
-        entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
-        config=config,
-        group="param-search-v2",
-        reinit=True,
-    )
-    loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=30, use_grad_norm=False,
-                      use_filtering=True,
-                      trial=None, hidden_units=100, lr_warmup=7)
+def legacy_exp(single_task=False):
+    if not single_task:
+        config = {"trial.number": -1}
+        wandb.init(
+            project="optuna-a100",
+            entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+            config=config,
+            group="param-search-v2",
+            reinit=True,
+        )
 
-    # report the final validation accuracy to wandb
-    wandb.run.summary["final loss"] = loss
-    wandb.run.summary["state"] = "completed"
-    wandb.finish(quiet=True)
+        loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=30, use_grad_norm=False,
+                          use_filtering=True,
+                          trial=None, hidden_units=100, lr_warmup=7)
+
+        # report the final validation accuracy to wandb
+        wandb.run.summary["final loss"] = loss
+        wandb.run.summary["state"] = "completed"
+        wandb.finish(quiet=True)
+    else:
+        for i in range(4):
+            config = {"trial.number": -10 * i}
+            wandb.init(
+                project="optuna-a100",
+                entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+                config=config,
+                group="param-search-v2",
+                reinit=True,
+            )
+            task_name = SelfExplanations.MTL_TARGETS[i]
+            loss = experiment([], bert_model="roberta-base", lr=2e-4, num_epochs=30, use_grad_norm=False,
+                              use_filtering=True,
+                              trial=None, hidden_units=100, lr_warmup=7, task_name=task_name)
+
+            # report the final validation accuracy to wandb
+            wandb.run.summary["final loss"] = loss
+            wandb.run.summary["state"] = "completed"
+            wandb.finish(quiet=True)
 
 def best_so_far():
     config = {"trial.number": -2}
@@ -202,8 +223,8 @@ def best_so_far():
 
 
 if __name__ == '__main__':
-    # legacy_exp()
-    best_so_far()
+    legacy_exp(single_task=True)
+    # best_so_far()
     # study = optuna.create_study(
     #     direction="minimize",
     #     study_name="param-search-study-v6",
