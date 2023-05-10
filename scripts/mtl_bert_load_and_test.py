@@ -2,7 +2,7 @@ from transformers import BertTokenizer, RobertaTokenizer
 
 from core.data_processing.se_dataset import SelfExplanations, create_data_loader
 from core.models.mtl import BERTMTL
-from scripts.mtl_bert_train import get_train_test_IDs, get_new_train_test_split, filter_rb_df
+from scripts.mtl_bert_train import get_new_train_test_split, get_filterable_cols
 import pytorch_lightning as pl
 import torch
 import numpy as np
@@ -21,12 +21,13 @@ if __name__ == '__main__':
     self_explanations = SelfExplanations()
     target_sent_enhanced = self_explanations.parse_se_from_csv(
         "../data/results_paraphrase_se_aggregated_dataset_v2.csv")
-    self_explanations.df = filter_rb_df(self_explanations.df)
 
-    # IDs = self_explanations.df['ID'].unique().tolist()
-    # _, test_IDs = get_train_test_IDs(IDs)
-    # df_test = self_explanations.df[self_explanations.df['ID'].isin(test_IDs)]
     df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df)
+
+    filterable_cols = get_filterable_cols(df_train)
+    df_train = df_train.drop(filterable_cols, axis=1, inplace=False)
+    df_dev = df_dev.drop(filterable_cols, axis=1, inplace=False)
+    df_test = df_test.drop(filterable_cols, axis=1, inplace=False)
 
     val_data_loader = create_data_loader(df_test, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True, use_filtering=True)
     # train_data_loader = create_data_loader(df_train, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True, use_filtering=True)

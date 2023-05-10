@@ -18,6 +18,10 @@ from pytorch_lightning.loggers import WandbLogger
 
 transformers.logging.set_verbosity_error()
 
+STUDY_NAME="source-text-importance"
+PROJECT="optuna-a100"
+ENTITY="bogdan-nicula22"
+
 def map_train_test(x):
     if x['Dataset'] in ['ASU 5']:
         return 'train'
@@ -37,20 +41,25 @@ def map_train_test(x):
     return 'dump'
 
 
-def get_new_train_test_split(df):
-    df['EntryType'] = df.apply(lambda x: map_train_test(x), axis=1)
-
+def get_new_train_test_split(df, target_sentence_mode):
     df.loc[df[SelfExplanations.ELABORATION] == 2, SelfExplanations.ELABORATION] = 1
     df.loc[df[SelfExplanations.BRIDGING] == 3, SelfExplanations.BRIDGING] = 2
 
+    if target_sentence_mode == "none":
+        df[SelfExplanations.TARGET_SENTENCE] = ""
+        df_cols_keep = df.columns[:114].tolist() + [c for c in df.columns if "source" in c]
+        df = df[df_cols_keep]
+    elif target_sentence_mode == "targetprev":
+        df[SelfExplanations.TARGET_SENTENCE] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
 
+    df['EntryType'] = df.apply(lambda x: map_train_test(x), axis=1)
     return df[(df['EntryType'] == 'train') | (df['EntryType'] == 'dev')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
     # return df[(df['EntryType'] == 'train')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
 
 
-def filter_rb_df(df):
+def get_filterable_cols(df):
     filterable_df = df[df.columns[114:-1]]
-    # print("original len", len(filterable_df.columns))
+    print("original len", len(filterable_df.columns))
     filterable_df = filterable_df.loc[:, filterable_df.apply(pd.Series.nunique) != 1]
     # print("rem constant", len(filterable_df.columns))
     filterable_df = filterable_df._get_numeric_data()
@@ -70,13 +79,15 @@ def filter_rb_df(df):
 
     filterable_df_orig = df[df.columns[114:-1]]
     cols_to_drop = [c for c in filterable_df_orig.columns if c not in filterable_df.columns]
-    # print("total cols to drop", len(cols_to_drop))
+    print("total cols to drop", len(cols_to_drop))
 
-    return df.drop(cols_to_drop, axis=1, inplace=False)
+    return cols_to_drop
 
 
 def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_epochs=20, task_name="none",
-               use_filtering=True, use_grad_norm=True, trial=None, hidden_units=100, lr_warmup=5):
+               use_filtering=True, use_grad_norm=True, trial=None, hidden_units=100, lr_warmup=5, target_sentence_mode="none"):
+    assert target_sentence_mode in ["none", "target", "targetprev"], f"Invalid target_sentence_mode {target_sentence_mode}"
+
     if task_name == "none":
         num_tasks = 4
     else:
@@ -92,9 +103,13 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     self_explanations = SelfExplanations()
     self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_2.csv")
 
-    self_explanations.df = filter_rb_df(self_explanations.df)
+    df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, target_sentence_mode)
 
-    df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df)
+    filterable_cols = get_filterable_cols(df_train)
+    df_train = df_train.drop(filterable_cols, axis=1, inplace=False)
+    df_dev = df_dev.drop(filterable_cols, axis=1, inplace=False)
+    df_test = df_test.drop(filterable_cols, axis=1, inplace=False)
+
     print(f"len train {len(df_train)}")
     print(f"len dev {len(df_dev)}")
     print(f"len test {len(df_test)}")
@@ -135,27 +150,27 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     trainer.fit(model, train_dataloaders=train_data_loader, val_dataloaders=val_data_loader)
     return model.last_loss
 
-def objective(trial):
+def objective(trial, target_sentence_mode):
     class_weighting = trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
+    target_sentence_mode = target_sentence_mode #trial.suggest_categorical("target_sentence_mode", ["none", "target", "targetprev"])
     lr = trial.suggest_float("lr", 1e-4, 4e-4, log=True)
-    # lr_warmup = trial.suggest_int("lr_warmup", 5, 10, step=1)
-    hidden_units = trial.suggest_int("hidden_units", 125, 175, step=25)
+    lr_warmup = trial.suggest_int("lr_warmup", 5, 10, step=1)
+    hidden_units = trial.suggest_int("hidden_units", 125, 200, step=25)
     filtering = "true" # trial.suggest_categorical("filtering", ["true", "false"])
     grad_norm = "true" #trial.suggest_categorical("grad_norm", ["true", "false"])
 
     config = dict(trial.params)
     config["trial.number"] = trial.number
     wandb.init(
-        project="optuna-a100",
-        entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+        project=PROJECT,
+        entity=ENTITY,  # NOTE: this entity depends on your wandb account.
         config=config,
-        group="param-search-v2",
+        group=STUDY_NAME,
         reinit=True,
     )
     loss = experiment([int(c) for c in class_weighting[1:-1].split(",")], bert_model="roberta-base",
                       lr=lr, num_epochs=25, use_grad_norm=grad_norm == "true", use_filtering=filtering, trial=trial,
-                      hidden_units=hidden_units, lr_warmup=5)
-
+                      hidden_units=hidden_units, lr_warmup=lr_warmup, target_sentence_mode=target_sentence_mode)
 
     # report the final validation accuracy to wandb
     wandb.run.summary["final loss"] = loss
@@ -168,16 +183,15 @@ def legacy_exp(single_task=False):
     if not single_task:
         config = {"trial.number": -1}
         wandb.init(
-            project="optuna-a100",
-            entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+            project=PROJECT,
+            entity=ENTITY,  # NOTE: this entity depends on your wandb account.
             config=config,
-            group="param-search-v2",
+            group=STUDY_NAME,
             reinit=True,
         )
 
         loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=30, use_grad_norm=False,
-                          use_filtering=True,
-                          trial=None, hidden_units=100, lr_warmup=7)
+                          use_filtering=True, trial=None, hidden_units=100, lr_warmup=7, target_sentence_mode="target")
 
         # report the final validation accuracy to wandb
         wandb.run.summary["final loss"] = loss
@@ -187,16 +201,15 @@ def legacy_exp(single_task=False):
         for i in range(4):
             config = {"trial.number": -10 * i}
             wandb.init(
-                project="optuna-a100",
-                entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+                project=PROJECT,
+                entity=ENTITY,  # NOTE: this entity depends on your wandb account.
                 config=config,
-                group="param-search-v2",
+                group=STUDY_NAME,
                 reinit=True,
             )
             task_name = SelfExplanations.MTL_TARGETS[i]
             loss = experiment([], bert_model="roberta-base", lr=2e-4, num_epochs=30, use_grad_norm=False,
-                              use_filtering=True,
-                              trial=None, hidden_units=100, lr_warmup=7, task_name=task_name)
+                              use_filtering=True, trial=None, hidden_units=100, lr_warmup=7, task_name=task_name, target_sentence_mode="target")
 
             # report the final validation accuracy to wandb
             wandb.run.summary["final loss"] = loss
@@ -206,15 +219,14 @@ def legacy_exp(single_task=False):
 def best_so_far():
     config = {"trial.number": -2}
     wandb.init(
-        project="optuna-a100",
-        entity="bogdan-nicula22",  # NOTE: this entity depends on your wandb account.
+        project=PROJECT,
+        entity=ENTITY,  # NOTE: this entity depends on your wandb account.
         config=config,
-        group="param-search-v2",
+        group=STUDY_NAME,
         reinit=True,
     )
     loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=127e-6, num_epochs=25, use_grad_norm=True,
-                      use_filtering=True,
-                      trial=None, hidden_units=125, lr_warmup=5)
+                      use_filtering=True, trial=None, hidden_units=125, lr_warmup=5, target_sentence_mode="target")
 
     # report the final validation accuracy to wandb
     wandb.run.summary["final loss"] = loss
@@ -223,15 +235,15 @@ def best_so_far():
 
 
 if __name__ == '__main__':
-    legacy_exp(single_task=True)
-    # best_so_far()
-    # study = optuna.create_study(
-    #     direction="minimize",
-    #     study_name="param-search-study-v6",
-    #     pruner=optuna.pruners.MedianPruner(),
-    # )
-    #
-    # study.optimize(objective, n_trials=30, timeout=None)
+    study = optuna.create_study(
+        direction="minimize",
+        study_name=STUDY_NAME,
+        pruner=optuna.pruners.MedianPruner(),
+    )
+
+    study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
+    # study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
+    # study.optimize(lambda x: objective(x, "targetprev"), n_trials=20, timeout=None)
 
     # print("=" * 33)
     # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)

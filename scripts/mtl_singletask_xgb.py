@@ -4,16 +4,20 @@ from sklearn.metrics import accuracy_score
 from xgboost import XGBClassifier
 
 from core.data_processing.se_dataset import SelfExplanations
-from scripts.mtl_bert_train import get_new_train_test_split, filter_rb_df
+from scripts.mtl_bert_train import get_new_train_test_split, get_filterable_cols
 
 file = "../data/results_paraphrase_se_aggregated_dataset_2.csv"
 
 df = pd.read_csv(file, delimiter='\t')
-df = filter_rb_df(df)
-
 feature_columns = df.columns.tolist()[114:]
 
 df_train, df_dev, df_test = get_new_train_test_split(df)
+
+filterable_cols = get_filterable_cols(df_train)
+df_train = df_train.drop(filterable_cols, axis=1, inplace=False)
+df_dev = df_dev.drop(filterable_cols, axis=1, inplace=False)
+df_test = df_test.drop(filterable_cols, axis=1, inplace=False)
+
 for task in SelfExplanations.MTL_TARGETS:
     # eliminating unlabeled datapoints for this task
     df_train_filtered = df_train[df_train[task] != 9]
