@@ -18,9 +18,9 @@ from pytorch_lightning.loggers import WandbLogger
 
 transformers.logging.set_verbosity_error()
 
-STUDY_NAME="source-text-importance-none-v2"
-PROJECT="optuna-a100"
-ENTITY="bogdan-nicula22"
+STUDY_NAME = "source-text-importance-target-best"
+PROJECT = "optuna-a100"
+ENTITY = "bogdan-nicula22"
 
 def map_train_test(x):
     if x['Dataset'] in ['ASU 5']:
@@ -219,21 +219,26 @@ def legacy_exp(single_task=False):
             wandb.finish(quiet=True)
 
 def best_so_far():
-    config = {"trial.number": -2}
-    wandb.init(
-        project=PROJECT,
-        entity=ENTITY,  # NOTE: this entity depends on your wandb account.
-        config=config,
-        group=STUDY_NAME,
-        reinit=True,
-    )
-    loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=127e-6, num_epochs=25, use_grad_norm=True,
-                      use_filtering=True, trial=None, hidden_units=125, lr_warmup=5, target_sentence_mode="target")
+    options = [
+        {'split': [2, 2, 1, 5], 'lr': 0.000101, 'hidden_units': 175, 'id': -3},
+        {'split': [2, 2, 1, 5], 'lr': 127e-6, 'hidden_units': 125, 'id': -2}
+    ]
+    for option in options:
+        config = {"trial.number": option['id']}
+        wandb.init(
+            project=PROJECT,
+            entity=ENTITY,  # NOTE: this entity depends on your wandb account.
+            config=config,
+            group=STUDY_NAME,
+            reinit=True,
+        )
+        loss = experiment(option['split'], bert_model="roberta-base", lr=option['lr'], num_epochs=25, use_grad_norm=True,
+                          use_filtering=True, trial=None, hidden_units=option['hidden_units'], lr_warmup=5, target_sentence_mode="target")
 
-    # report the final validation accuracy to wandb
-    wandb.run.summary["final loss"] = loss
-    wandb.run.summary["state"] = "completed"
-    wandb.finish(quiet=True)
+        # report the final validation accuracy to wandb
+        wandb.run.summary["final loss"] = loss
+        wandb.run.summary["state"] = "completed"
+        wandb.finish(quiet=True)
 
 
 if __name__ == '__main__':
@@ -242,8 +247,8 @@ if __name__ == '__main__':
         study_name=STUDY_NAME,
         pruner=optuna.pruners.MedianPruner(),
     )
-
-    study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
+    best_so_far()
+    # study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
     # study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
     # study.optimize(lambda x: objective(x, "targetprev"), n_trials=20, timeout=None)
 
