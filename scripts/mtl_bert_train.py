@@ -18,7 +18,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 transformers.logging.set_verbosity_error()
 
-STUDY_NAME="source-text-importance"
+STUDY_NAME="source-text-importance-none-v2"
 PROJECT="optuna-a100"
 ENTITY="bogdan-nicula22"
 
@@ -46,10 +46,12 @@ def get_new_train_test_split(df, target_sentence_mode):
     df.loc[df[SelfExplanations.BRIDGING] == 3, SelfExplanations.BRIDGING] = 2
 
     if target_sentence_mode == "none":
+        df["Source"] = ""
         df[SelfExplanations.TARGET_SENTENCE] = ""
         df_cols_keep = df.columns[:114].tolist() + [c for c in df.columns if "source" in c]
         df = df[df_cols_keep]
     elif target_sentence_mode == "targetprev":
+        df["Source"] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
         df[SelfExplanations.TARGET_SENTENCE] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
 
     df['EntryType'] = df.apply(lambda x: map_train_test(x), axis=1)
