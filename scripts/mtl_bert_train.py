@@ -18,7 +18,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 transformers.logging.set_verbosity_error()
 
-STUDY_NAME = "source-text-importance-target-best"
+STUDY_NAME = "source-text-importance-target-v3"
 PROJECT = "optuna-a100"
 ENTITY = "bogdan-nicula22"
 
@@ -153,11 +153,11 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     return model.last_loss
 
 def objective(trial, target_sentence_mode):
-    class_weighting = trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
+    class_weighting = "[2, 2, 1, 5]"#trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
     target_sentence_mode = target_sentence_mode #trial.suggest_categorical("target_sentence_mode", ["none", "target", "targetprev"])
-    lr = trial.suggest_float("lr", 1e-4, 4e-4, log=True)
+    lr = trial.suggest_float("lr", 1e-4, 3e-4, log=True)
     lr_warmup = trial.suggest_int("lr_warmup", 5, 10, step=1)
-    hidden_units = trial.suggest_int("hidden_units", 125, 200, step=25)
+    hidden_units = 175 # trial.suggest_int("hidden_units", 125, 200, step=25)
     filtering = "true" # trial.suggest_categorical("filtering", ["true", "false"])
     grad_norm = "true" #trial.suggest_categorical("grad_norm", ["true", "false"])
 
@@ -247,9 +247,9 @@ if __name__ == '__main__':
         study_name=STUDY_NAME,
         pruner=optuna.pruners.MedianPruner(),
     )
-    best_so_far()
+    # best_so_far()
     # study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
-    # study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
+    study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
     # study.optimize(lambda x: objective(x, "targetprev"), n_trials=20, timeout=None)
 
     # print("=" * 33)
