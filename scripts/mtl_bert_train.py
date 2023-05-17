@@ -41,7 +41,7 @@ def map_train_test(x):
     return 'dump'
 
 
-def get_new_train_test_split(df, target_sentence_mode):
+def get_new_train_test_split(df, target_sentence_mode="target"):
     df.loc[df[SelfExplanations.ELABORATION] == 2, SelfExplanations.ELABORATION] = 1
     df.loc[df[SelfExplanations.BRIDGING] == 3, SelfExplanations.BRIDGING] = 2
 
@@ -112,6 +112,15 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     df_dev = df_dev.drop(filterable_cols, axis=1, inplace=False)
     df_test = df_test.drop(filterable_cols, axis=1, inplace=False)
 
+    print(len(df_train[df_train['Dataset'] == 'ASU 1']))
+    print(len(df_train[df_train['Dataset'] == 'ASU 4']))
+    print(len(df_train[df_train['Dataset'] == 'ASU 5']))
+    print(len(df_dev[df_dev['Dataset'] == 'ASU 1']))
+    print(len(df_dev[df_dev['Dataset'] == 'ASU 4']))
+    print(len(df_dev[df_dev['Dataset'] == 'ASU 5']))
+    print(len(df_test[df_test['Dataset'] == 'ASU 1']))
+    print(len(df_test[df_test['Dataset'] == 'ASU 4']))
+    print(len(df_test[df_test['Dataset'] == 'ASU 5']))
     print(f"len train {len(df_train)}")
     print(f"len dev {len(df_dev)}")
     print(f"len test {len(df_test)}")
@@ -232,8 +241,8 @@ def best_so_far():
             group=STUDY_NAME,
             reinit=True,
         )
-        loss = experiment(option['split'], bert_model="roberta-base", lr=option['lr'], num_epochs=25, use_grad_norm=True,
-                          use_filtering=True, trial=None, hidden_units=option['hidden_units'], lr_warmup=5, target_sentence_mode="target")
+        loss = experiment(option['split'], bert_model="roberta-base", lr=option['lr'], num_epochs=200, use_grad_norm=True,
+                          use_filtering=True, trial=None, hidden_units=option['hidden_units'], lr_warmup=60, target_sentence_mode="target")
 
         # report the final validation accuracy to wandb
         wandb.run.summary["final loss"] = loss
@@ -247,9 +256,9 @@ if __name__ == '__main__':
         study_name=STUDY_NAME,
         pruner=optuna.pruners.MedianPruner(),
     )
-    # best_so_far()
+    best_so_far()
     # study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
-    study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
+    # study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
     # study.optimize(lambda x: objective(x, "targetprev"), n_trials=20, timeout=None)
 
     # print("=" * 33)
