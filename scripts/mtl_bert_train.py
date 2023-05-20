@@ -18,7 +18,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 transformers.logging.set_verbosity_error()
 
-STUDY_NAME = "source-text-importance-target-v3"
+STUDY_NAME = "rb_feats_importance_none"
 PROJECT = "optuna-a100"
 ENTITY = "bogdan-nicula22"
 
@@ -87,7 +87,7 @@ def get_filterable_cols(df):
 
 
 def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_epochs=20, task_name="none",
-               use_filtering=True, use_grad_norm=True, trial=None, hidden_units=100, lr_warmup=5, target_sentence_mode="none"):
+               use_filtering=True, use_grad_norm=True, trial=None, hidden_units=100, lr_warmup=5, target_sentence_mode="none", use_rb_feats=True):
     assert target_sentence_mode in ["none", "target", "targetprev"], f"Invalid target_sentence_mode {target_sentence_mode}"
 
     if task_name == "none":
@@ -112,25 +112,12 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
     df_dev = df_dev.drop(filterable_cols, axis=1, inplace=False)
     df_test = df_test.drop(filterable_cols, axis=1, inplace=False)
 
-    print(len(df_train[df_train['Dataset'] == 'ASU 1']))
-    print(len(df_train[df_train['Dataset'] == 'ASU 4']))
-    print(len(df_train[df_train['Dataset'] == 'ASU 5']))
-    print(len(df_dev[df_dev['Dataset'] == 'ASU 1']))
-    print(len(df_dev[df_dev['Dataset'] == 'ASU 4']))
-    print(len(df_dev[df_dev['Dataset'] == 'ASU 5']))
-    print(len(df_test[df_test['Dataset'] == 'ASU 1']))
-    print(len(df_test[df_test['Dataset'] == 'ASU 4']))
-    print(len(df_test[df_test['Dataset'] == 'ASU 5']))
-    print(f"len train {len(df_train)}")
-    print(f"len dev {len(df_dev)}")
-    print(f"len test {len(df_test)}")
-
     # toggle 0 or 1 for using rb_features
-    train_data_loader = create_data_loader(df_train, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True,
+    train_data_loader = create_data_loader(df_train, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=use_rb_feats,
                                            task_name=task_name, use_filtering=use_filtering)
-    val_data_loader = create_data_loader(df_test, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True,
+    val_data_loader = create_data_loader(df_test, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=use_rb_feats,
                                          task_name=task_name, use_filtering=use_filtering)
-    rb_feats = train_data_loader.dataset.rb_feats.shape[1]
+    rb_feats = train_data_loader.dataset.rb_feats.shape[1] if use_rb_feats else 0
     task_sample_weights = []
     if num_tasks > 1:
         task_names = [SelfExplanations.MTL_TARGETS[task_id] for task_id in range(num_tasks)]
@@ -165,13 +152,17 @@ def objective(trial, target_sentence_mode):
     class_weighting = "[2, 2, 1, 5]"#trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
     target_sentence_mode = target_sentence_mode #trial.suggest_categorical("target_sentence_mode", ["none", "target", "targetprev"])
     lr = trial.suggest_float("lr", 1e-4, 3e-4, log=True)
-    lr_warmup = trial.suggest_int("lr_warmup", 5, 10, step=1)
+    lr_warmup = 6 # trial.suggest_int("lr_warmup", 5, 10, step=1)
     hidden_units = 175 # trial.suggest_int("hidden_units", 125, 200, step=25)
     filtering = "true" # trial.suggest_categorical("filtering", ["true", "false"])
     grad_norm = "true" #trial.suggest_categorical("grad_norm", ["true", "false"])
+    rb_feats = "false"
 
     config = dict(trial.params)
     config["trial.number"] = trial.number
+    config["filtering"] = filtering
+    config["grad_norm"] = grad_norm
+    config["rb_feats"] = rb_feats
     wandb.init(
         project=PROJECT,
         entity=ENTITY,  # NOTE: this entity depends on your wandb account.
@@ -241,7 +232,7 @@ def best_so_far():
             group=STUDY_NAME,
             reinit=True,
         )
-        loss = experiment(option['split'], bert_model="roberta-base", lr=option['lr'], num_epochs=200, use_grad_norm=True,
+        loss = experiment(option['split'], bert_model="roberta-base", lr=option['lr'], num_epochs=25, use_grad_norm=True,
                           use_filtering=True, trial=None, hidden_units=option['hidden_units'], lr_warmup=60, target_sentence_mode="target")
 
         # report the final validation accuracy to wandb
@@ -256,8 +247,8 @@ if __name__ == '__main__':
         study_name=STUDY_NAME,
         pruner=optuna.pruners.MedianPruner(),
     )
-    best_so_far()
-    # study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
+    # best_so_far()
+    study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
     # study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
     # study.optimize(lambda x: objective(x, "targetprev"), n_trials=20, timeout=None)
 
