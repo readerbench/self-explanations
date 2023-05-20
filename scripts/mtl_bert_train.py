@@ -171,8 +171,8 @@ def objective(trial, target_sentence_mode):
         reinit=True,
     )
     loss = experiment([int(c) for c in class_weighting[1:-1].split(",")], bert_model="roberta-base",
-                      lr=lr, num_epochs=25, use_grad_norm=grad_norm == "true", use_filtering=filtering, trial=trial,
-                      hidden_units=hidden_units, lr_warmup=lr_warmup, target_sentence_mode=target_sentence_mode)
+                      lr=lr, num_epochs=25, use_grad_norm=grad_norm == "true", use_filtering=filtering == "true", trial=trial,
+                      hidden_units=hidden_units, lr_warmup=lr_warmup, target_sentence_mode=target_sentence_mode, use_rb_feats=rb_feats == "true")
 
     # report the final validation accuracy to wandb
     wandb.run.summary["final loss"] = loss
@@ -193,7 +193,7 @@ def legacy_exp(single_task=False):
         )
 
         loss = experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=30, use_grad_norm=False,
-                          use_filtering=True, trial=None, hidden_units=100, lr_warmup=7, target_sentence_mode="target")
+                          use_filtering=True, trial=None, hidden_units=100, lr_warmup=7, target_sentence_mode="target", use_rb_feats=True)
 
         # report the final validation accuracy to wandb
         wandb.run.summary["final loss"] = loss
@@ -211,7 +211,7 @@ def legacy_exp(single_task=False):
             )
             task_name = SelfExplanations.MTL_TARGETS[i]
             loss = experiment([], bert_model="roberta-base", lr=2e-4, num_epochs=30, use_grad_norm=False,
-                              use_filtering=True, trial=None, hidden_units=100, lr_warmup=7, task_name=task_name, target_sentence_mode="target")
+                              use_filtering=True, trial=None, hidden_units=100, lr_warmup=7, task_name=task_name, target_sentence_mode="target", use_rb_feats=True)
 
             # report the final validation accuracy to wandb
             wandb.run.summary["final loss"] = loss
@@ -233,7 +233,7 @@ def best_so_far():
             reinit=True,
         )
         loss = experiment(option['split'], bert_model="roberta-base", lr=option['lr'], num_epochs=25, use_grad_norm=True,
-                          use_filtering=True, trial=None, hidden_units=option['hidden_units'], lr_warmup=60, target_sentence_mode="target")
+                          use_filtering=True, trial=None, hidden_units=option['hidden_units'], lr_warmup=60, target_sentence_mode="target", use_rb_feats=True)
 
         # report the final validation accuracy to wandb
         wandb.run.summary["final loss"] = loss
@@ -253,6 +253,6 @@ if __name__ == '__main__':
     # study.optimize(lambda x: objective(x, "targetprev"), n_trials=20, timeout=None)
 
     # print("=" * 33)
-    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False)
+    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False, use_rb_feats=False)
     # print("=" * 33)
     # experiment([1, 1, 1, 1], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=True)
