@@ -192,7 +192,7 @@ def clean_csv(file):
     print(f"Removed {removable_cols} because of datatype issues")
     df = df.drop(columns=removable_cols)
 
-    df.to_csv(f"{file[:-4]}_v2.csv")
+    df.to_csv(f"{file[:-4]}_clean.csv")
     return df
 
 

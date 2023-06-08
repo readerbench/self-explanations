@@ -1,7 +1,5 @@
-import os.path
 import wandb
 import optuna
-import random
 
 import pandas as pd
 import numpy as np
@@ -12,7 +10,6 @@ import transformers
 
 from core.models.mtl import BERTMTL
 from core.data_processing.se_dataset import SelfExplanations, create_data_loader
-from sklearn.model_selection import train_test_split
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
@@ -21,6 +18,7 @@ transformers.logging.set_verbosity_error()
 STUDY_NAME = "rb_feats_importance_none"
 PROJECT = "optuna-a100"
 ENTITY = "bogdan-nicula22"
+
 
 def map_train_test(x):
     if x['Dataset'] in ['ASU 5']:
@@ -55,17 +53,24 @@ def get_new_train_test_split(df, target_sentence_mode="target"):
         df[SelfExplanations.TARGET_SENTENCE] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
 
     df['EntryType'] = df.apply(lambda x: map_train_test(x), axis=1)
+
+    # Train on train+dev
     return df[(df['EntryType'] == 'train') | (df['EntryType'] == 'dev')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
+    # Train on train
     # return df[(df['EntryType'] == 'train')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
 
 
 def get_filterable_cols(df):
+    """
+    Compiles a list of columns which can be dropped.
+    If 2 columns have strong intercorrelation (> .95), one will be dropped.
+    :param df:
+    :return:
+    """
     filterable_df = df[df.columns[114:-1]]
-    print("original len", len(filterable_df.columns))
+    print("Original number of columns", len(filterable_df.columns))
     filterable_df = filterable_df.loc[:, filterable_df.apply(pd.Series.nunique) != 1]
-    # print("rem constant", len(filterable_df.columns))
     filterable_df = filterable_df._get_numeric_data()
-    # print("rem garbage vals", len(filterable_df.columns))
     cor_matrix = np.corrcoef(filterable_df.values, rowvar=False)
     cor_matrix = np.abs(cor_matrix)
 
@@ -77,11 +82,10 @@ def get_filterable_cols(df):
             to_drop.append(i)
 
     filterable_df.drop(filterable_df.columns[to_drop], axis=1, inplace=True)
-    # print("rem intercorr vals", len(filterable_df.columns))
 
     filterable_df_orig = df[df.columns[114:-1]]
     cols_to_drop = [c for c in filterable_df_orig.columns if c not in filterable_df.columns]
-    print("total cols to drop", len(cols_to_drop))
+    print("Total columns to drop", len(cols_to_drop))
 
     return cols_to_drop
 
@@ -94,7 +98,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
         num_tasks = 4
     else:
         num_tasks = 1
-    predefined_version = ""
+
     MAX_LEN_P = 80
     BATCH_SIZE = 128
     if "roberta" in bert_model:
@@ -143,20 +147,22 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
         callbacks=[checkpoint_callback],
         logger=WandbLogger(),
         devices=1 if torch.cuda.is_available() else None,  # limiting got iPython runs
-        # limit_train_batches=10,
+        # limit_train_batches=10, # Limits an epoch to 10 minibatches. Uncomment for faster 'pipe cleaning' runs.
         max_epochs=num_epochs)
     trainer.fit(model, train_dataloaders=train_data_loader, val_dataloaders=val_data_loader)
     return model.last_loss
 
+
 def objective(trial, target_sentence_mode):
-    class_weighting = "[2, 2, 1, 5]"#trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
-    target_sentence_mode = target_sentence_mode #trial.suggest_categorical("target_sentence_mode", ["none", "target", "targetprev"])
+    # Note: the functionality used to explore the parameter space is commented out
+    class_weighting = "[2, 2, 1, 5]"  # trial.suggest_categorical("class_weighting", ["[1,1,1,1]", "[1,1,1,3]", "[2,2,1,5]"])
+    target_sentence_mode = target_sentence_mode   # trial.suggest_categorical("target_sentence_mode", ["none", "target", "targetprev"])
     lr = trial.suggest_float("lr", 1e-4, 3e-4, log=True)
-    lr_warmup = 6 # trial.suggest_int("lr_warmup", 5, 10, step=1)
-    hidden_units = 175 # trial.suggest_int("hidden_units", 125, 200, step=25)
-    filtering = "true" # trial.suggest_categorical("filtering", ["true", "false"])
-    grad_norm = "true" #trial.suggest_categorical("grad_norm", ["true", "false"])
-    rb_feats = "false"
+    lr_warmup = 6  # trial.suggest_int("lr_warmup", 5, 10, step=1)
+    hidden_units = 175  # trial.suggest_int("hidden_units", 125, 200, step=25)
+    filtering = "true"  # trial.suggest_categorical("filtering", ["true", "false"])
+    grad_norm = "true"  # trial.suggest_categorical("grad_norm", ["true", "false"])
+    rb_feats = "true"
 
     config = dict(trial.params)
     config["trial.number"] = trial.number
@@ -181,7 +187,13 @@ def objective(trial, target_sentence_mode):
 
     return loss
 
+
 def legacy_exp(single_task=False):
+    """
+    Runs the legacy experiments from the AIED paper.
+    :param single_task:
+    :return:
+    """
     if not single_task:
         config = {"trial.number": -1}
         wandb.init(
@@ -218,6 +230,7 @@ def legacy_exp(single_task=False):
             wandb.run.summary["state"] = "completed"
             wandb.finish(quiet=True)
 
+
 def best_so_far():
     options = [
         {'split': [2, 2, 1, 5], 'lr': 0.000101, 'hidden_units': 175, 'id': -3},
@@ -247,12 +260,15 @@ if __name__ == '__main__':
         study_name=STUDY_NAME,
         pruner=optuna.pruners.MedianPruner(),
     )
+    # Runs the 2 best configurations found so far
     # best_so_far()
+
+    # experiments without a target sentence
     study.optimize(lambda x: objective(x, "none"), n_trials=20, timeout=None)
+
+    # experiments with target sentence
     # study.optimize(lambda x: objective(x, "target"), n_trials=20, timeout=None)
+
+    # experiments with previous sentence + target sentence
     # study.optimize(lambda x: objective(x, "targetprev"), n_trials=20, timeout=None)
 
-    # print("=" * 33)
-    # experiment([2, 2, 1, 5], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=False, use_rb_feats=False)
-    # print("=" * 33)
-    # experiment([1, 1, 1, 1], bert_model="roberta-base", lr=2e-4, num_epochs=25, use_grad_norm=True, use_filtering=True)
