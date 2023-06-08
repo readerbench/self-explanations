@@ -219,34 +219,36 @@ class BERTMTL(pl.LightningModule):
             batch["text_p"],
             batch["filter_data"].reshape(-1).tolist())
 
-  def test_epoch_end(self, validation_step_outputs):
-    for i, l in enumerate(validation_step_outputs):
+  def test_epoch_end(self, test_step_outputs):
+    for i, l in enumerate(test_step_outputs):
       out_line = ""
       out_line += l[2][0] + "\t"
       out_line += l[3][0] + "\t"
       out_line += "\t".join(map(str, l[0])) + "\t"
       out_line += "\t".join(map(str, l[1])) + "\t"
-      out_line += "\t".join(map(str, l[4])) + "\t"
+      # out_line += "\t".join(map(str, l[4])) + "\t"
       print(f"{i}\t{out_line}")
-    targets = [x[0] for x in validation_step_outputs]
-    outputs = [x[1] for x in validation_step_outputs]
+    targets = [x[0] for x in test_step_outputs]
+    outputs = [x[1] for x in test_step_outputs]
 
     task_targets = [[] for _ in range(self.num_tasks)]
     task_outputs = [[] for _ in range(self.num_tasks)]
 
-    for i in range(self.num_tasks):
-      print("=" * 5 + self.task_names[i] + "=" * 20)
-      for j in range(len(targets)):
-        task_targets[i].append(targets[j][i])
-        task_outputs[i].append(outputs[j][i])
-
-      task_targets[i] = torch.cat(task_targets[i])
-      task_outputs[i] = torch.cat(task_outputs[i])
-      task_mask = task_targets[i] != 9
-      filtered_targets = task_targets[i][task_mask].int()
-      filtered_outputs = task_outputs[i][task_mask].int()
-      print(confusion_matrix(filtered_targets, filtered_outputs))
-      print(classification_report(filtered_targets, filtered_outputs))
+    print(task_targets)
+    print(task_outputs)
+    # for i in range(self.num_tasks):
+    #   print("=" * 5 + self.task_names[i] + "=" * 20)
+    #   for j in range(len(targets)):
+    #     task_targets[i].append(targets[j][i])
+    #     task_outputs[i].append(outputs[j][i])
+    #
+    #   task_targets[i] = torch.cat(task_targets[i])
+    #   task_outputs[i] = torch.cat(task_outputs[i])
+    #   task_mask = task_targets[i] != 9
+    #   filtered_targets = task_targets[i][task_mask].int()
+    #   filtered_outputs = task_outputs[i][task_mask].int()
+    #   print(confusion_matrix(filtered_targets, filtered_outputs))
+    #   print(classification_report(filtered_targets, filtered_outputs))
 
   def validation_epoch_end(self, validation_step_outputs):
     targets = [x[0] for x in validation_step_outputs]

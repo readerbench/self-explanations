@@ -137,7 +137,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
         total = len(df_aux[task_name]) * 1.0
         task_sample_weights.append(torch.Tensor([total / values[i] if i in values else 0 for i in range(SelfExplanations.MTL_CLASS_DICT[task_name])]))
 
-    checkpoint_callback = ModelCheckpoint(save_top_k=1, monitor="test_loss", every_n_epochs=10)
+    checkpoint_callback = ModelCheckpoint(save_top_k=5, monitor="test_loss", every_n_epochs=1)
     model = BERTMTL(task_names, bert_model, rb_feats=rb_feats, task_sample_weights=task_sample_weights,
                     task_imp_weights=task_imp_weights, lr=lr, num_epochs=num_epochs, use_filtering=use_filtering,
                     use_grad_norm=use_grad_norm, trial=trial, hidden_units=hidden_units, lr_warmup=lr_warmup)

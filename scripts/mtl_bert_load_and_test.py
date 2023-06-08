@@ -12,7 +12,7 @@ if __name__ == '__main__':
     predefined_version = ""
     PRE_TRAINED_MODEL_NAME = 'roberta-base'
     MAX_LEN_P = 80
-    BATCH_SIZE = 128
+    BATCH_SIZE = 1
     if "roberta" in PRE_TRAINED_MODEL_NAME:
         tokenizer = RobertaTokenizer.from_pretrained(PRE_TRAINED_MODEL_NAME)
     else:
@@ -33,7 +33,10 @@ if __name__ == '__main__':
     # train_data_loader = create_data_loader(df_train, tokenizer, MAX_LEN_P, BATCH_SIZE, num_tasks, use_rb_feats=True, use_filtering=True)
 
     task_names = [SelfExplanations.MTL_TARGETS[task_id] for task_id in range(num_tasks)]
-    model = BERTMTL(task_names, PRE_TRAINED_MODEL_NAME, rb_feats=val_data_loader.dataset.rb_feats.shape[1], use_filtering=True)
+    model = BERTMTL(task_names, PRE_TRAINED_MODEL_NAME, rb_feats=val_data_loader.dataset.rb_feats.shape[1], use_filtering=True,
+                                       use_grad_norm=True,
+                                       task_imp_weights=[2, 2, 1, 5],
+                                       hidden_units=125)
 
     model_path = "./mtl/lightning_logs/version_24/checkpoints/epoch=21-step=1848.ckpt"
 
@@ -45,7 +48,7 @@ if __name__ == '__main__':
                                        use_filtering=True,
                                        use_grad_norm=True,
                                        task_imp_weights=[2, 2, 1, 5],
-                                       hidden_units=175)
+                                       hidden_units=125)
 
     trainer = pl.Trainer(
         accelerator="auto",
