@@ -107,7 +107,7 @@ def experiment(task_imp_weights=[], bert_model="bert-base-cased", lr=1e-3, num_e
         tokenizer = BertTokenizer.from_pretrained(bert_model)
 
     self_explanations = SelfExplanations()
-    self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_2.csv")
+    self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
 
     df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, target_sentence_mode)
 
