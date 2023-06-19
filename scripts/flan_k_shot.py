@@ -147,7 +147,7 @@ if __name__ == '__main__':
                     (3, "paraphrasing", SelfExplanations.PARAPHRASE),
                     (3, "elaboration", SelfExplanations.ELABORATION),
                     (2, "bridging", SelfExplanations.BRIDGING),
-                    (4, "self-explanation", SelfExplanations.OVERALL),
+                    (4, "overall", SelfExplanations.OVERALL),
                 ]:
                     sentences = []
                     for index, line in df_test.iterrows():
