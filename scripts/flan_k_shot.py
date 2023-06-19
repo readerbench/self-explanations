@@ -130,7 +130,7 @@ if __name__ == '__main__':
     }
 
     self_explanations = SelfExplanations()
-    self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_clean.csv")
+    self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
 
     for flan_size in ["small", "base", "large", "xl", "xxl"]:
         model, tokenizer = load_model(flan_size)
