@@ -37,8 +37,6 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
     print(confusion_matrix(targets, predictions))
     print("=" * 33)
 
-
-
 def get_prompt(prompt_structure, class_name, class_definition, class_meaning, source, production, source_ex=None, production_ex=None, result_ex=None):
     if prompt_structure == 0:
         options = "\n".join([f"{i} - {class_meaning[i]}" for i in class_meaning])
@@ -132,7 +130,7 @@ if __name__ == '__main__':
     }
 
     self_explanations = SelfExplanations()
-    self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_2.csv")
+    self_explanations.parse_se_from_csv("../data/results_paraphrase_se_aggregated_dataset_clean.csv")
 
     for flan_size in ["small", "base", "large", "xl", "xxl"]:
         model, tokenizer = load_model(flan_size)
