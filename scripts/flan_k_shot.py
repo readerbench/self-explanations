@@ -50,7 +50,7 @@ def get_prompt(prompt_structure, class_name, class_definition, class_meaning, so
         if source_ex is not None:
             for i in range(len(source_ex)):
                 example += f"Question: {question}\nSource Sentence: {source_ex[i]}\nTarget Sentence: {production_ex[i]}\nAnswer: {result_ex[i]}\n"
-        return f"Context: {class_definition} This class has the following options: \n{options}\n\n" \
+        return f"Context: {class_definition} This class has the following options: \n{options}\n" \
                f"{example}" \
                f"Question: {question}\nSource Sentence: {source}\nTarget Sentence: {production}\nAnswer: "
     return ""
