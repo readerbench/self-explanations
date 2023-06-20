@@ -31,7 +31,7 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
         result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         # print(result)
         result = [f"{x[1]}" if x.startswith("(") else x for x in result]
-        result = [grades.index(x) for x in result]
+        result = [grades.index(x) if x in grades else 0 for x in result]
         # print(result)
         predictions += result
     print("=" * 33)
