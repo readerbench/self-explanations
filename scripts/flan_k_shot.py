@@ -1,3 +1,4 @@
+import random
 import torch
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
@@ -17,17 +18,21 @@ def load_model(model_size):
 
 def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_name=""):
     predictions = []
+    grades = ["A", "B", "C", "D"]
     for i in range(1 + len(sentences) // batch_size):
         inputs = tokenizer(
             sentences[i*batch_size: (i+1) * batch_size],
             return_tensors="pt",
             padding=True)
+        if i % 10 == 0:
+            print(f"Seen {i} batches.")
         # print(sentences[i*batch_size])
         outputs = model.generate(**inputs)
         result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         # print(result)
-        result = [min(int(x), max(targets)) if x.isnumeric() else 0 for x in result]
-
+        result = [f"{x[1]}" if x.startswith("(") else x for x in result]
+        result = [grades.index(x) for x in result]
+        # print(result)
         predictions += result
     print("=" * 33)
     targets = np.array(targets)
@@ -37,20 +42,33 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
     print(confusion_matrix(targets, predictions))
     print("=" * 33)
 
-def get_prompt(prompt_structure, class_name, class_definition, class_meaning, source, production, source_ex=None, production_ex=None, result_ex=None):
+def get_prompt(prompt_structure, num_classes, class_name, class_definition, class_meaning, source, production, source_ex=None, production_ex=None, result_ex=None):
     if prompt_structure == 0:
-        options = "\n".join([f"{i} - {class_meaning[i]}" for i in class_meaning])
+        grades = ["A", "B", "C", "D"]
+        options = "\n".join([f"({grades[i]}) {class_meaning[i]}" for i in class_meaning])
+        based_on_text = ", based on the S2." if len(source) > 0 else "."
+        # based_on_text += f"(Accepted answers: {','.join([str(x) for x in range(num_classes)])})"
         if class_name == SelfExplanations.OVERALL:
-            question = "What is the overall quality of the self-explanation in the Target Sentence, based on the Source Sentence."
+            question = f"What is the overall quality of the self-explanation in S1{based_on_text}"
         else:
-            question = f"Assess the {class_name} score for self-explanation in the Target Sentence, based on the Source Sentence."
+            question = f"Assess the {class_name} score for the self-explanation in S1{based_on_text}"
         example = ""
         if source_ex is not None:
             for i in range(len(source_ex)):
-                example += f"Question: {question}\nSource Sentence: {source_ex[i]}\nTarget Sentence: {production_ex[i]}\nAnswer: {result_ex[i]}\n"
-        return f"Context: {class_definition} This class has the following options: \n{options}\n" \
+                example += f"Question: {question}\n" \
+                           f"S1: {production_ex[i]}\n" \
+                           f"S2: {source_ex[i]}\n" \
+                           f"Answer: ({grades[result_ex[i]]})\n"
+                           # f"Options:\n{options}\n" \
+                           # f"Answer: ({grades[result_ex[i]]})\n"
+        source_text = (f"S2: {source}\n" if len(source) > 0 else "")
+        return f"Context: {class_definition}\n" \
                f"{example}" \
-               f"Question: {question}\nSource Sentence: {source}\nTarget Sentence: {production}\nAnswer: "
+               f"Question: {question}\n" \
+               f"S1: {production}\n" \
+               f"{source_text}" \
+               f"Options:\n{options}\n" \
+               f"Answer: "
     return ""
 
 def get_examples(df, task_df_label, seed=1, num_examples=1):
@@ -63,8 +81,9 @@ def get_examples(df, task_df_label, seed=1, num_examples=1):
         source = []
         prod = []
         label = []
-
-        for i in range(SelfExplanations.MTL_CLASS_DICT[task_df_label]):
+        class_list = list(range(SelfExplanations.MTL_CLASS_DICT[task_df_label]))
+        random.shuffle(class_list)
+        for i in class_list:
             df_reduced = df[df[task_df_label] == i]
             row = df_reduced.sample(random_state=13+seed)
             source.append(row['Source'].values[0])
@@ -104,16 +123,16 @@ if __name__ == '__main__':
         SelfExplanations.PARAPHRASE: {
             0: "Not present",
             1: "Contains one example",
-            2: "Contains multiple qualitative examples"
+            2: "Contains multiple examples"
         },
         SelfExplanations.BRIDGING: {
             0: "Not present",
             1: "Contains one example",
-            2: "Contains multiple qualitative examples"
+            2: "Contains multiple examples"
         },
         SelfExplanations.ELABORATION: {
             0: "Not present",
-            1: "Contains at least one example"
+            1: "Contains one example"
         },
         SelfExplanations.OVERALL: {
             0: "Poor",
@@ -131,12 +150,17 @@ if __name__ == '__main__':
 
     self_explanations = SelfExplanations()
     self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
+    print("Loaded SEs")
 
     for flan_size in ["small", "base", "large", "xl", "xxl"]:
+    # for flan_size in ["large"]:
         model, tokenizer = load_model(flan_size)
-        for sentence_mode in ["none", "target", "targetprev"]:
+        print("Loaded model")
+        # for sentence_mode in ["none", "target", "targetprev"]:
+        for sentence_mode in ["target", "targetprev"]:
             df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
             for num_examples in [0, 1, 2]:
+                random.seed(13)
                 print("$" + "=" * 33)
                 print("$" + "=" * 33)
                 print(f">>Model:{flan_size} sentence_mode:{sentence_mode} num_examples:{num_examples}")
@@ -149,11 +173,11 @@ if __name__ == '__main__':
                 ]:
                     sentences = []
                     for index, line in df_test.iterrows():
-                        source, prod, label = get_examples(df_dev, task_df_label, seed=index, num_examples=0)
-                        sentences.append(get_prompt(0, task_name, class_definitions[task_df_label],
+                        source, prod, label = get_examples(df_dev, task_df_label, seed=index, num_examples=num_examples)
+                        sentences.append(get_prompt(0, num_classes, task_name, class_definitions[task_df_label],
                                                     shortened_class_item_meaning_dict[task_df_label],
                                                     line['Source'], line['Production'],
                                                     source, prod, label))
                     targets = df_test[task_df_label].values.tolist()
 
-                    batch_eval(model, tokenizer, sentences, batch_size=256, targets=targets, task_name=task_name)
+                    batch_eval(model, tokenizer, sentences, batch_size=8, targets=targets, task_name=task_name)
