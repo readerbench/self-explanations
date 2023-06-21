@@ -62,7 +62,7 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
         if i % 10 == 0:
             print(f"Seen {i} batches.")
         # print(sentences[i*batch_size])
-        outputs = model.generate(**inputs)
+        outputs = model.generate(**inputs, max_length=20)
         result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         # print(result)
         result = [f"{x[1]}" if x.startswith("(") else x for x in result]
