@@ -10,7 +10,7 @@ from scripts.mtl_bert_train import get_new_train_test_split, get_filterable_cols
 import warnings
 warnings.filterwarnings('ignore')
 
-def load_model(model_size):
+def load_model(flan_size):
     model = AutoModelForSeq2SeqLM.from_pretrained(f"google/flan-t5-{flan_size}", device_map="auto", torch_dtype=torch.float16)
     tokenizer = AutoTokenizer.from_pretrained(f"google/flan-t5-{flan_size}")
 
@@ -147,8 +147,9 @@ if __name__ == '__main__':
         SelfExplanations.ELABORATION: "Elaboration means that the reader is connecting information from the text to their own knowledge base. The relevant information may come from previously acquired knowledge, or the reader may use logic and common sense to elaborate beyond the textbase.",
         SelfExplanations.OVERALL: "The overall score assesses the quality of the self explanation in terms of paraphrasing, bridging and elaboration. A high quality self-explanation is one that incorporates information at a global level(e.g., high quality local bridges, distal bridging, or meaningful elaborations)."
     }
-
+    print("Starting program")
     self_explanations = SelfExplanations()
+    print("Loading SEs")
     self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
     print("Loaded SEs")
 
