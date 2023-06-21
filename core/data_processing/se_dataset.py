@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 from os.path import exists
 
-from core.data_processing.filtering import ZeroRules
+#from core.data_processing.filtering import ZeroRules
 
 
 class SelfExplanations:
@@ -119,9 +119,9 @@ def create_data_loader(df, tokenizer, max_len, batch_size, num_tasks, use_rb_fea
   filter_data = None
   if use_filtering:
     data = []
-    zR = ZeroRules()
-    for index, row in df.iloc[0:].iterrows():
-      data.append(zR.get_filter_scores(row["Production"], row["Source"], ""))
+    # zR = ZeroRules()
+    # for index, row in df.iloc[0:].iterrows():
+    #   data.append(zR.get_filter_scores(row["Production"], row["Source"], ""))
 
     filter_data = np.array(data)
   ds = SEDataset(

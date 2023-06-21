@@ -2,13 +2,48 @@ import random
 import torch
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
-from torchmetrics import F1Score
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 from core.data_processing.se_dataset import SelfExplanations
-from scripts.mtl_bert_train import get_new_train_test_split, get_filterable_cols
 import warnings
-warnings.filterwarnings('ignore')
+# warnings.filterwarnings('ignore')
+
+def map_train_test(x):
+    if x['Dataset'] in ['ASU 5']:
+        return 'train'
+    if x['Dataset'] == 'CRaK':
+        return 'dump'
+    if x['Dataset'] == 'ASU 1':
+        if 'RBC' in x['TextID'].upper():
+            return 'test'
+        if x['PrePost'] == 'Post':
+            return 'dev'
+        return 'train'
+    if x['Dataset'] == 'ASU 4':
+        if not str(x['ID']).startswith('ISTARTREF'):
+            return 'train'
+        else:
+            return 'dev'
+    return 'dump'
+
+
+def get_new_train_test_split(df, target_sentence_mode="target"):
+    df.loc[df[SelfExplanations.ELABORATION] == 2, SelfExplanations.ELABORATION] = 1
+    df.loc[df[SelfExplanations.BRIDGING] == 3, SelfExplanations.BRIDGING] = 2
+
+    if target_sentence_mode == "none":
+        df["Source"] = ""
+        df[SelfExplanations.TARGET_SENTENCE] = ""
+        df_cols_keep = df.columns[:114].tolist() + [c for c in df.columns if "source" in c]
+        df = df[df_cols_keep]
+    elif target_sentence_mode == "targetprev":
+        df["Source"] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
+        df[SelfExplanations.TARGET_SENTENCE] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
+
+    df['EntryType'] = df.apply(lambda x: map_train_test(x), axis=1)
+    return df[(df['EntryType'] == 'train') | (df['EntryType'] == 'dev')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
+    # return df[(df['EntryType'] == 'train')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
+
 
 def load_model(flan_size):
     model = AutoModelForSeq2SeqLM.from_pretrained(f"google/flan-t5-{flan_size}", device_map="auto", torch_dtype=torch.float16)
