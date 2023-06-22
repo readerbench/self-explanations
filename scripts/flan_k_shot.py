@@ -217,7 +217,7 @@ if __name__ == '__main__':
                                                     line['Source'], line['Production'],
                                                     source, prod, label))
                     targets = df_test[task_df_label].values.tolist()
-                    bs = 256
+                    bs = 128
                     if model == "large":
                         bs = 32
                     elif model == "xl":
