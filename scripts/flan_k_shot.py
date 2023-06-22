@@ -6,7 +6,9 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 from core.data_processing.se_dataset import SelfExplanations
 import warnings
+import logging
 # warnings.filterwarnings('ignore')
+logging.basicConfig(level=logging.NOTSET)
 
 def map_train_test(x):
     if x['Dataset'] in ['ASU 5']:
@@ -60,22 +62,22 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
             return_tensors="pt",
             padding=True)
         if i % 10 == 0:
-            print(f"Seen {i} batches.")
-        # print(sentences[i*batch_size])
+            logging.info(f"Seen {i} batches.")
+        # logging.info(sentences[i*batch_size])
         outputs = model.generate(**inputs, max_length=20)
         result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        # print(result)
+        # logging.info(result)
         result = [f"{x[1]}" if x.startswith("(") else x for x in result]
         result = [grades.index(x) if x in grades else 0 for x in result]
-        # print(result)
+        # logging.info(result)
         predictions += result
-    print("=" * 33)
+    logging.info("=" * 33)
     targets = np.array(targets)
     predictions = np.array(predictions)
-    print(f"task:{task_name} f1:{f1_score(targets, predictions, average='weighted')}")
-    print(classification_report(targets, predictions))
-    print(confusion_matrix(targets, predictions))
-    print("=" * 33)
+    logging.info(f"task:{task_name} f1:{f1_score(targets, predictions, average='weighted')}")
+    logging.info(classification_report(targets, predictions))
+    logging.info(confusion_matrix(targets, predictions))
+    logging.info("=" * 33)
 
 def get_prompt(prompt_structure, num_classes, class_name, class_definition, class_meaning, source, production, source_ex=None, production_ex=None, result_ex=None):
     if prompt_structure == 0:
@@ -182,24 +184,24 @@ if __name__ == '__main__':
         SelfExplanations.ELABORATION: "Elaboration means that the reader is connecting information from the text to their own knowledge base. The relevant information may come from previously acquired knowledge, or the reader may use logic and common sense to elaborate beyond the textbase.",
         SelfExplanations.OVERALL: "The overall score assesses the quality of the self explanation in terms of paraphrasing, bridging and elaboration. A high quality self-explanation is one that incorporates information at a global level(e.g., high quality local bridges, distal bridging, or meaningful elaborations)."
     }
-    print("Starting program")
+    logging.info("Starting program")
     self_explanations = SelfExplanations()
-    print("Loading SEs")
+    logging.info("Loading SEs")
     self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
-    print("Loaded SEs")
+    logging.info("Loaded SEs")
 
     for flan_size in ["small", "base", "large", "xl", "xxl"]:
     # for flan_size in ["large"]:
         model, tokenizer = load_model(flan_size)
-        print("Loaded model")
+        logging.info("Loaded model")
         # for sentence_mode in ["none", "target", "targetprev"]:
         for sentence_mode in ["target", "targetprev"]:
             df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
             for num_examples in [0, 1, 2]:
                 random.seed(13)
-                print("$" + "=" * 33)
-                print("$" + "=" * 33)
-                print(f">>Model:{flan_size} sentence_mode:{sentence_mode} num_examples:{num_examples}")
+                logging.info("$" + "=" * 33)
+                logging.info("$" + "=" * 33)
+                logging.info(f">>Model:{flan_size} sentence_mode:{sentence_mode} num_examples:{num_examples}")
                 targets = []
                 for num_classes, task_name, task_df_label in [
                     (3, "paraphrasing", SelfExplanations.PARAPHRASE),
@@ -215,5 +217,11 @@ if __name__ == '__main__':
                                                     line['Source'], line['Production'],
                                                     source, prod, label))
                     targets = df_test[task_df_label].values.tolist()
-
-                    batch_eval(model, tokenizer, sentences, batch_size=8, targets=targets, task_name=task_name)
+                    bs = 256
+                    if model == "large":
+                        bs = 32
+                    elif model == "xl":
+                        bs = 4
+                    elif model == "xxl":
+                        bs = 1
+                    batch_eval(model, tokenizer, sentences, batch_size=bs, targets=targets, task_name=task_name)
