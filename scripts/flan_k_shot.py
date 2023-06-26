@@ -53,9 +53,12 @@ def load_model(flan_size):
 
     return model, tokenizer
 
-def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_name=""):
+def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_name="", details="", config={}):
     predictions = []
-    grades = ["A", "B", "C", "D"]
+    if config["numberingAlpha"]:
+        grades = ["A", "B", "C", "D"]
+    else:
+        grades = ["1", "2", "3", "4"]
     for i in range(1 + len(sentences) // batch_size):
         inputs = tokenizer(
             sentences[i*batch_size: (i+1) * batch_size],
@@ -63,49 +66,79 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
             padding=True)
         if i % 10 == 0:
             logging.info(f"Seen {i} batches.")
-        # logging.info(sentences[i*batch_size])
-        outputs = model.generate(**inputs, max_length=20)
+            logging.info(f"targets: {targets}")
+            logging.info(sentences[i*batch_size])
+        outputs = model.generate(**inputs, max_length=4)
         result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        # logging.info(result)
-        result = [f"{x[1]}" if x.startswith("(") else x for x in result]
+        logging.info(result)
+        result = [f"{x[1]}" if x.startswith("(") and len(x) > 1 else x for x in result]
         result = [grades.index(x) if x in grades else 0 for x in result]
-        # logging.info(result)
+        logging.info(result)
         predictions += result
     logging.info("=" * 33)
     targets = np.array(targets)
     predictions = np.array(predictions)
-    logging.info(f"task:{task_name} f1:{f1_score(targets, predictions, average='weighted')}")
+    logging.info(f"task:{task_name} details:{details} f1:{f1_score(targets, predictions, average='weighted')}")
     logging.info(classification_report(targets, predictions))
     logging.info(confusion_matrix(targets, predictions))
     logging.info("=" * 33)
 
-def get_prompt(prompt_structure, num_classes, class_name, class_definition, class_meaning, source, production, source_ex=None, production_ex=None, result_ex=None):
+def get_prompt(prompt_structure, num_classes, class_name, class_definition, class_meaning, source, production,
+               source_ex=None, production_ex=None, result_ex=None, config=""):
     if prompt_structure == 0:
-        grades = ["A", "B", "C", "D"]
+        sentenceA, sentenceB = "Student Sentence", "Source Sentence"
+        if config["S1S2notSource"]:
+            sentenceA, sentenceB = "S1", "S2"
+
+        if config["numberingAlpha"]:
+            grades = ["A", "B", "C", "D"]
+        else:
+            grades = ["1", "2", "3", "4"]
         options = "\n".join([f"({grades[i]}) {class_meaning[i]}" for i in class_meaning])
-        based_on_text = ", based on the S2." if len(source) > 0 else "."
+        based_on_text = f", based on the {sentenceB}." if len(source) > 0 else "."
         # based_on_text += f"(Accepted answers: {','.join([str(x) for x in range(num_classes)])})"
         if class_name == SelfExplanations.OVERALL:
-            question = f"What is the overall quality of the self-explanation in S1{based_on_text}"
+            question = f"What is the overall quality of the self-explanation in {sentenceA}{based_on_text}"
         else:
-            question = f"Assess the {class_name} score for the self-explanation in S1{based_on_text}"
+            question = f"Assess the {class_name} score for the self-explanation in {sentenceA}{based_on_text}"
         example = ""
         if source_ex is not None:
             for i in range(len(source_ex)):
-                example += f"Question: {question}\n" \
-                           f"S1: {production_ex[i]}\n" \
-                           f"S2: {source_ex[i]}\n" \
-                           f"Answer: ({grades[result_ex[i]]})\n"
-                           # f"Options:\n{options}\n" \
-                           # f"Answer: ({grades[result_ex[i]]})\n"
-        source_text = (f"S2: {source}\n" if len(source) > 0 else "")
-        return f"Context: {class_definition}\n" \
-               f"{example}" \
-               f"Question: {question}\n" \
-               f"S1: {production}\n" \
-               f"{source_text}" \
-               f"Options:\n{options}\n" \
-               f"Answer: "
+                if config["S1S2before"]:
+                    example += f"{sentenceA}: {production_ex[i]}\n" \
+                               f"{sentenceB}: {source_ex[i]}\n" \
+                               f"Question: {question}\n" \
+                               f"Answer: ({grades[result_ex[i]]})\n"
+                               # f"Options:\n{options}\n" \
+                               # f"Answer: ({grades[result_ex[i]]})\n"
+                else:
+                    example += f"Question: {question}\n" \
+                               f"{sentenceA}: {production_ex[i]}\n" \
+                               f"{sentenceB}: {source_ex[i]}\n" \
+                               f"Answer: ({grades[result_ex[i]]})\n"
+                    # f"Options:\n{options}\n" \
+                    # f"Answer: ({grades[result_ex[i]]})\n"
+        source_text = (f"{sentenceB}: {source}\n" if len(source) > 0 else "")
+        context = ""
+        if config["context"]:
+            context = f"Context: {class_definition}\n"
+
+        if config["S1S2before"]:
+            return f"{context}" \
+                   f"{example}" \
+                   f"{sentenceA}: {production}\n" \
+                   f"{source_text}" \
+                   f"Question: {question}\n" \
+                   f"Options:\n{options}\n" \
+                   f"Answer: "
+        else:
+            return f"{context}" \
+                   f"{example}" \
+                   f"Question: {question}\n" \
+                   f"{sentenceA}: {production}\n" \
+                   f"{source_text}" \
+                   f"Options:\n{options}\n" \
+                   f"Answer: "
     return ""
 
 def get_examples(df, task_df_label, seed=1, num_examples=1):
@@ -190,38 +223,58 @@ if __name__ == '__main__':
     self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
     logging.info("Loaded SEs")
 
-    for flan_size in ["small", "base", "large", "xl", "xxl"]:
-    # for flan_size in ["large"]:
+    # for flan_size in ["small", "base", "large", "xl", "xxl"]:
+    for flan_size in ["large", "xl"]:
         model, tokenizer = load_model(flan_size)
         logging.info("Loaded model")
         # for sentence_mode in ["none", "target", "targetprev"]:
-        for sentence_mode in ["target", "targetprev"]:
+        for sentence_mode in ["target"]:
             df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
             for num_examples in [0, 1, 2]:
-                random.seed(13)
-                logging.info("$" + "=" * 33)
-                logging.info("$" + "=" * 33)
-                logging.info(f">>Model:{flan_size} sentence_mode:{sentence_mode} num_examples:{num_examples}")
-                targets = []
-                for num_classes, task_name, task_df_label in [
-                    (3, "paraphrasing", SelfExplanations.PARAPHRASE),
-                    (3, "elaboration", SelfExplanations.ELABORATION),
-                    (2, "bridging", SelfExplanations.BRIDGING),
-                    (4, "overall", SelfExplanations.OVERALL),
+                for config in [
+                    {'context': False, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": False},
+                    {'context': False, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": True},
+                    {'context': False, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": False},
+                    {'context': False, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": True},
+                    {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": False},
+                    {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": True},
+                    {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
+                    {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": True},
+                    {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": False},
+                    {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": True},
+                    {'context': True, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": False},
+                    {'context': True, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": True},
+                    {'context': True, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": False},
+                    {'context': True, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": True},
+                    {'context': True, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
+                    {'context': True, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": True},
                 ]:
-                    sentences = []
-                    for index, line in df_test.iterrows():
-                        source, prod, label = get_examples(df_dev, task_df_label, seed=index, num_examples=num_examples)
-                        sentences.append(get_prompt(0, num_classes, task_name, class_definitions[task_df_label],
-                                                    shortened_class_item_meaning_dict[task_df_label],
-                                                    line['Source'], line['Production'],
-                                                    source, prod, label))
-                    targets = df_test[task_df_label].values.tolist()
-                    bs = 128
-                    if model == "large":
-                        bs = 32
-                    elif model == "xl":
-                        bs = 4
-                    elif model == "xxl":
-                        bs = 1
-                    batch_eval(model, tokenizer, sentences, batch_size=bs, targets=targets, task_name=task_name)
+                    random.seed(13)
+                    logging.info("$" + "=" * 33)
+                    logging.info("$" + "=" * 33)
+                    logging.info(f">>Model:{flan_size} sentence_mode:{sentence_mode} num_examples:{num_examples}")
+                    targets = []
+                    for num_classes, task_name, task_df_label in [
+                        (3, "paraphrasing", SelfExplanations.PARAPHRASE),
+                        (3, "elaboration", SelfExplanations.ELABORATION),
+                        (2, "bridging", SelfExplanations.BRIDGING),
+                        (4, "overall", SelfExplanations.OVERALL),
+                    ]:
+                        sentences = []
+                        for index, line in df_test.iterrows():
+                            source, prod, label = get_examples(df_dev, task_df_label, seed=index, num_examples=num_examples)
+                            sentences.append(get_prompt(0, num_classes, task_name, class_definitions[task_df_label],
+                                                        shortened_class_item_meaning_dict[task_df_label],
+                                                        line['Source'], line['Production'],
+                                                        source, prod, label,
+                                                        config))
+                        targets = df_test[task_df_label].values.tolist()
+                        bs = 128
+                        if model == "large":
+                            bs = 32
+                        elif model == "xl":
+                            bs = 4
+                        elif model == "xxl":
+                            bs = 1
+                        batch_eval(model, tokenizer, sentences, batch_size=bs, targets=targets, task_name=task_name,
+                                   details=f"{flan_size}|{sentence_mode}|{num_examples}|{config}", config=config)
