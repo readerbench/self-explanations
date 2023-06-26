@@ -64,16 +64,17 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
             sentences[i*batch_size: (i+1) * batch_size],
             return_tensors="pt",
             padding=True)
-        if i % 10 == 0:
+        outputs = model.generate(**inputs, max_length=4)
+        result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+
+        if i % 50 == 0:
             logging.info(f"Seen {i} batches.")
             logging.info(f"targets: {targets}")
             logging.info(sentences[i*batch_size])
-        outputs = model.generate(**inputs, max_length=4)
-        result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        logging.info(result)
+            logging.info(result)
         result = [f"{x[1]}" if x.startswith("(") and len(x) > 1 else x for x in result]
         result = [grades.index(x) if x in grades else 0 for x in result]
-        logging.info(result)
+        # logging.info(result)
         predictions += result
     logging.info("=" * 33)
     targets = np.array(targets)
@@ -269,9 +270,9 @@ if __name__ == '__main__':
                                                         source, prod, label,
                                                         config))
                         targets = df_test[task_df_label].values.tolist()
-                        bs = 128
+                        bs = 16
                         if model == "large":
-                            bs = 32
+                            bs = 8
                         elif model == "xl":
                             bs = 4
                         elif model == "xxl":
