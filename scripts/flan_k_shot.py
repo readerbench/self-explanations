@@ -43,8 +43,8 @@ def get_new_train_test_split(df, target_sentence_mode="target"):
         df[SelfExplanations.TARGET_SENTENCE] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
 
     df['EntryType'] = df.apply(lambda x: map_train_test(x), axis=1)
-    return df[(df['EntryType'] == 'train') | (df['EntryType'] == 'dev')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
-    # return df[(df['EntryType'] == 'train')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
+    # return df[(df['EntryType'] == 'train') | (df['EntryType'] == 'dev')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
+    return df[(df['EntryType'] == 'train')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
 
 
 def load_model(flan_size):
@@ -225,7 +225,7 @@ if __name__ == '__main__':
     logging.info("Loaded SEs")
 
     # for flan_size in ["small", "base", "large", "xl", "xxl"]:
-    for flan_size in ["large", "xl"]:
+    for flan_size in ["large"]:
         model, tokenizer = load_model(flan_size)
         logging.info("Loaded model")
         # for sentence_mode in ["none", "target", "targetprev"]:
@@ -262,17 +262,17 @@ if __name__ == '__main__':
                         (4, "overall", SelfExplanations.OVERALL),
                     ]:
                         sentences = []
-                        for index, line in df_test.iterrows():
-                            source, prod, label = get_examples(df_dev, task_df_label, seed=index, num_examples=num_examples)
+                        for index, line in df_dev.iterrows():
+                            source, prod, label = get_examples(df_train, task_df_label, seed=index, num_examples=num_examples)
                             sentences.append(get_prompt(0, num_classes, task_name, class_definitions[task_df_label],
                                                         shortened_class_item_meaning_dict[task_df_label],
                                                         line['Source'], line['Production'],
                                                         source, prod, label,
                                                         config))
-                        targets = df_test[task_df_label].values.tolist()
+                        targets = df_dev[task_df_label].values.tolist()
                         bs = 16
                         if model == "large":
-                            bs = 8
+                            bs = 32
                         elif model == "xl":
                             bs = 4
                         elif model == "xxl":
