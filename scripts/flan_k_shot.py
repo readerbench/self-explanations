@@ -69,7 +69,7 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
 
         if i % 50 == 0:
             logging.info(f"Seen {i} batches.")
-            logging.info(f"targets: {targets}")
+            logging.info(f"targets: {targets[i*batch_size: (i+1) * batch_size]}")
             logging.info(sentences[i*batch_size])
             logging.info(result)
         result = [f"{x[1]}" if x.startswith("(") and len(x) > 1 else x for x in result]
@@ -240,7 +240,7 @@ if __name__ == '__main__':
                     # {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": False},
                     # {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": True},
                     # {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
-                    {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": True},
+                    {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
                     # {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": False},
                     # {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": True},
                     # {'context': True, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": False},
