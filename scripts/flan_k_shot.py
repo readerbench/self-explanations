@@ -224,8 +224,8 @@ if __name__ == '__main__':
     self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
     logging.info("Loaded SEs")
 
-    # for flan_size in ["small", "base", "large", "xl", "xxl"]:
-    for flan_size in ["large"]:
+    for flan_size in ["large", "xl", "xxl", "small", "base"]:
+    # for flan_size in ["large"]:
         model, tokenizer = load_model(flan_size)
         logging.info("Loaded model")
         # for sentence_mode in ["none", "target", "targetprev"]:
@@ -233,22 +233,22 @@ if __name__ == '__main__':
             df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
             for num_examples in [0, 1, 2]:
                 for config in [
-                    {'context': False, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": False},
-                    {'context': False, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": True},
-                    {'context': False, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": False},
-                    {'context': False, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": True},
-                    {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": False},
-                    {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": True},
-                    {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
+                    # {'context': False, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": False},
+                    # {'context': False, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": True},
+                    # {'context': False, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": False},
+                    # {'context': False, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": True},
+                    # {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": False},
+                    # {'context': False, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": True},
+                    # {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
                     {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": True},
-                    {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": False},
-                    {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": True},
-                    {'context': True, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": False},
-                    {'context': True, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": True},
-                    {'context': True, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": False},
-                    {'context': True, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": True},
-                    {'context': True, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
-                    {'context': True, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": True},
+                    # {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": False},
+                    # {'context': True, "S1S2notSource": False, "numberingAlpha": False, "S1S2before": True},
+                    # {'context': True, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": False},
+                    # {'context': True, "S1S2notSource": False, "numberingAlpha": True, "S1S2before": True},
+                    # {'context': True, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": False},
+                    # {'context': True, "S1S2notSource": True, "numberingAlpha": False, "S1S2before": True},
+                    # {'context': True, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False},
+                    # {'context': True, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": True},
                 ]:
                     random.seed(13)
                     logging.info("$" + "=" * 33)
@@ -262,15 +262,15 @@ if __name__ == '__main__':
                         (4, "overall", SelfExplanations.OVERALL),
                     ]:
                         sentences = []
-                        for index, line in df_dev.iterrows():
+                        for index, line in df_test.iterrows():
                             source, prod, label = get_examples(df_train, task_df_label, seed=index, num_examples=num_examples)
                             sentences.append(get_prompt(0, num_classes, task_name, class_definitions[task_df_label],
                                                         shortened_class_item_meaning_dict[task_df_label],
                                                         line['Source'], line['Production'],
                                                         source, prod, label,
                                                         config))
-                        targets = df_dev[task_df_label].values.tolist()
-                        bs = 16
+                        targets = df_test[task_df_label].values.tolist()
+                        bs = 64
                         if model == "large":
                             bs = 32
                         elif model == "xl":
