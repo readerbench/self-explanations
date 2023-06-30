@@ -9,7 +9,8 @@ from transformers.utils import logging as transf_logging
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, TrainingArguments, AdapterTrainer
 from transformers.adapters import LoRAConfig
 
-from core.data_processing.flan_data_processing import get_best_config, get_data, get_new_train_test_split
+from core.data_processing.flan_data_processing import get_best_config, get_data, get_new_train_test_split, \
+    get_targets_and_preds
 from core.data_processing.se_dataset import SelfExplanations
 from transformers.trainer_callback import PrinterCallback
 
@@ -160,11 +161,10 @@ if __name__ == '__main__':
                 grades = ["A", "B", "C", "D"]
                 validation_dataset = load_split(sentences_test, targets_test, "test")
                 logging.info("Validating results: %d", len(validation_dataset))
-                labels = []
-                outputs = []
-                orig_outputs = []
                 logging.info(transf_logging.get_logger('transformers.generation.configuration_utils'))
                 transf_logging.get_logger('transformers.generation.configuration_utils').setLevel(transf_logging.ERROR)
+                targets = []
+                predictions = []
                 for i in range(len(validation_dataset)):
                     # load the input and label
                     input_ids = validation_dataset[i]['input_ids'].unsqueeze(0).to(0)
@@ -174,7 +174,8 @@ if __name__ == '__main__':
                     # convert the tokens to text
                     output_text = tokenizer.decode(output[0], skip_special_tokens=True)
                     label_text = tokenizer.decode(label_ids[0], skip_special_tokens=True)
-                    orig_outputs.append(output_text)
+                    targets.append(label_text)
+                    predictions.append(output_text)
                     if i % 200 == 0:
                         input_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
                         logging.info(f"Seen {i} batches.")
@@ -182,26 +183,30 @@ if __name__ == '__main__':
                         logging.info(f"output: {output_text}")
                         logging.info(f"label: {label_text}")
 
-                    label_letter = label_text[1] if label_text.startswith("(") and len(label_text) > 1 else label_text
-                    label_id = grades.index(label_letter) if label_letter in grades else 0
-
-                    start = output_text.find("(")
-                    if start < 0 or len(output_text[start:]) < 2:
-                        output_letter = "A"
-                    else:
-                        output_letter = output_text[start:][1]
-                    output_id = grades.index(output_letter) if output_letter in grades else 0
-
-                    labels.append(label_id)
-                    outputs.append(output_id)
-
                 transf_logging.get_logger('transformers.generation.configuration_utils').setLevel(transf_logging.INFO)
-                targets = np.array(labels)
-                predictions = np.array(outputs)
-                logging.info(f"task:{task_name} details: {flan_size}-{num_examples} f1:{f1_score(targets, predictions, average='weighted')}")
-                logging.info(classification_report(targets, predictions))
-                logging.info(confusion_matrix(targets, predictions))
-                logging.info(labels)
-                logging.info(outputs)
-                logging.info(orig_outputs)
+                logging.info("=" * 33)
+                logging.info(predictions)
+                logging.info(targets)
+                targets_opt, preds_opt = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=True,
+                                                               is_optimistical=True)
+                targets_opt = np.array(targets_opt)
+                preds_opt = np.array(preds_opt)
+                logging.info(f"Optimistic estimation")
+                logging.info(
+                    f"task:{task_name} details:opt-{flan_size}-{num_examples} f1:{f1_score(targets_opt, preds_opt, average='weighted')}")
+                logging.info(classification_report(targets_opt, preds_opt))
+                logging.info(confusion_matrix(targets_opt, preds_opt))
+                logging.info("=" * 33)
+                targets_pes, preds_pes = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=True,
+                                                               is_optimistical=False)
+                targets_pes = np.array(targets_pes)
+                preds_pes = np.array(preds_pes)
+                logging.info(f"Pessimistic estimation")
+                logging.info(
+                    f"task:{task_name} details:pes-{flan_size}-{num_examples} f1:{f1_score(targets_pes, preds_pes, average='weighted')}")
+                logging.info(classification_report(targets_pes, preds_pes))
+                logging.info(confusion_matrix(targets_pes, preds_pes))
+                logging.info("=" * 33)
+                logging.info(
+                    f"Sentences: {len(validation_dataset)}\tOptimistic: {len(targets_opt)}\tPessimistic: {len(targets_pes)}\tPerc: {100.0 * len(targets_pes) / len(validation_dataset)}")
                 logging.info("=" * 33)

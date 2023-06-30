@@ -1,4 +1,5 @@
 import random
+import logging
 from core.data_processing.se_dataset import SelfExplanations
 
 def map_train_test(x):
@@ -154,6 +155,29 @@ def get_all_configs():
 def get_best_config():
     return {'context': False, "S1S2notSource": True, "numberingAlpha": True, "S1S2before": False}
 
+
+def process_score(grades, text, optimistic=True):
+    not_found = 0 if optimistic else -1
+    start = text.find("(")
+    if start < 0 or len(text[start:]) < 2:
+        return not_found
+    else:
+        output_letter = text[start:][1]
+    return grades.index(output_letter) if output_letter in grades else not_found
+
+def get_targets_and_preds(predictions_raw, targets, grades, targets_raw_flag=False, is_optimistical=False):
+    predictions = [process_score(grades, x, is_optimistical) for x in predictions_raw]
+    if targets_raw_flag:
+        targets = [process_score(grades, x, True) for x in targets]
+
+    if not is_optimistical:
+        skip_indices = [i for i, x in enumerate(predictions) if x < 0]
+        res_targets = [targets[i] for i in range(len(targets)) if i not in skip_indices]
+        res_predictions = [predictions[i] for i in range(len(targets)) if i not in skip_indices]
+    else:
+        res_targets = targets
+        res_predictions = predictions
+    return res_targets, res_predictions
 
 class PromptUtils:
     class_item_meaning_dict = {

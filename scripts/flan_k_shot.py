@@ -7,7 +7,7 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 from core.data_processing.se_dataset import SelfExplanations
 from core.data_processing.flan_data_processing import get_new_train_test_split, get_prompt, get_examples, PromptUtils, \
-    get_best_config, get_data
+    get_best_config, get_data, get_targets_and_preds
 
 logging.basicConfig(level=logging.NOTSET)
 
@@ -32,22 +32,33 @@ def batch_eval(model, tokenizer, sentences, batch_size=256, targets=[], task_nam
             padding=True)
         outputs = model.generate(**inputs, max_length=4)
         result = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-
         if i % 50 == 0:
             logging.info(f"Seen {i} batches.")
-            logging.info(f"targets: {targets[i*batch_size: (i+1) * batch_size]}")
             logging.info(sentences[i*batch_size])
-            logging.info(result)
-        result = [f"{x[1]}" if x.startswith("(") and len(x) > 1 else x for x in result]
-        result = [grades.index(x) if x in grades else 0 for x in result]
-        # logging.info(result)
+            logging.info(result[i*batch_size])
+            logging.info(f"target: {targets[i*batch_size]}")
         predictions += result
+
     logging.info("=" * 33)
-    targets = np.array(targets)
-    predictions = np.array(predictions)
-    logging.info(f"task:{task_name} details:{details} f1:{f1_score(targets, predictions, average='weighted')}")
-    logging.info(classification_report(targets, predictions))
-    logging.info(confusion_matrix(targets, predictions))
+    logging.info(predictions)
+    logging.info(targets)
+    targets_opt, preds_opt = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=False, is_optimistical=True)
+    targets_opt = np.array(targets_opt)
+    preds_opt = np.array(preds_opt)
+    logging.info(f"Optimistic estimation")
+    logging.info(f"task:{task_name} details:opt-{details} f1:{f1_score(targets_opt, preds_opt, average='weighted')}")
+    logging.info(classification_report(targets_opt, preds_opt))
+    logging.info(confusion_matrix(targets_opt, preds_opt))
+    logging.info("=" * 33)
+    targets_pes, preds_pes = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=False, is_optimistical=False)
+    targets_pes = np.array(targets_pes)
+    preds_pes = np.array(preds_pes)
+    logging.info(f"Pessimistic estimation")
+    logging.info(f"task:{task_name} details:pes-{details} f1:{f1_score(targets_pes, preds_pes, average='weighted')}")
+    logging.info(classification_report(targets_pes, preds_pes))
+    logging.info(confusion_matrix(targets_pes, preds_pes))
+    logging.info("=" * 33)
+    logging.info(f"Sentences: {len(sentences)}\tOptimistic: {len(targets_opt)}\tPessimistic: {len(targets_pes)}\tPerc: {100.0 * len(targets_pes) / len(sentences)}")
     logging.info("=" * 33)
 
 
