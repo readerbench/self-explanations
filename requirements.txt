@@ -1,3 +1,7 @@
+adapter-transformers==3.2.1
+accelerate
+datasets
+sentencepiece
 wandb
 optuna
 numpy
