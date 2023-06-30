@@ -64,7 +64,7 @@ def get_batch_size(flan_size, num_examples):
     increments = [1, 3, 10, 40, 160]
     example_increment = num_examples + 1
 
-    return max(1, int(4 / increments[index] / example_increment))
+    return max(1, int(20 / increments[index] / example_increment))
 
 
 if __name__ == '__main__':
@@ -108,10 +108,10 @@ if __name__ == '__main__':
                 logging.info("Generating test data %d", len(df_test))
                 sentences_test, targets_test = get_data(df_test, df_train, task_df_label, task_name, num_examples, config)
 
-                sentences_train = sentences_train[:800]
-                targets_train = targets_train[:800]
-                sentences_test = sentences_test[:1000]
-                targets_test = targets_test[:1000]
+                # sentences_train = sentences_train[:800]
+                # targets_train = targets_train[:800]
+                # sentences_test = sentences_test[:1000]
+                # targets_test = targets_test[:1000]
                 # the base model that we'll be using
                 base_model = f"google/flan-t5-{flan_size}"
                 # the tokenizer that we'll be using
@@ -182,7 +182,7 @@ if __name__ == '__main__':
                         logging.info(f"output: {output_text}")
                         logging.info(f"label: {label_text}")
 
-                    label_letter = label_text[1] if output_text.startswith("(") and len(output_text) > 1 else output_text
+                    label_letter = label_text[1] if label_text.startswith("(") and len(label_text) > 1 else label_text
                     label_id = grades.index(label_letter) if label_letter in grades else 0
 
                     start = output_text.find("(")
