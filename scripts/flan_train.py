@@ -89,8 +89,9 @@ if __name__ == '__main__':
     sentence_mode = "target"
 
     df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
-    for flan_size in ["small", "base", "large", "xl", "xxl"]:
-        for num_examples in [2]:
+    for flan_size in ["xl"]:
+    # for flan_size in ["small", "base", "large", "xl", "xxl"]:
+        for num_examples in range(3):
             batch_size = get_batch_size(flan_size, num_examples)
             logging.info("=" * 33)
             logging.info(f"Starting {flan_size} - {num_examples} - {batch_size}")
@@ -131,7 +132,7 @@ if __name__ == '__main__':
                 training_args = TrainingArguments(
                     report_to="none",
                     learning_rate=3e-4,
-                    num_train_epochs=1,
+                    num_train_epochs=5,
                     per_device_train_batch_size=batch_size,
                     per_device_eval_batch_size=batch_size,
                     logging_steps=200,
