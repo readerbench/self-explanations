@@ -90,7 +90,7 @@ if __name__ == '__main__':
 
     df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
     for flan_size in ["small", "base", "large", "xl", "xxl"]:
-        for num_examples in range(2):
+        for num_examples in [2]:
             batch_size = get_batch_size(flan_size, num_examples)
             logging.info("=" * 33)
             logging.info(f"Starting {flan_size} - {num_examples} - {batch_size}")
