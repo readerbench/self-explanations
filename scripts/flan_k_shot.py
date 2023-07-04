@@ -70,12 +70,14 @@ if __name__ == '__main__':
     self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
     logging.info("Loaded SEs")
 
-    for flan_size in ["small", "base", "large", "xl", "xxl"]:
+    # for flan_size in ["small", "base", "large", "xl", "xxl"]:
+    for flan_size in ["xxl"]:
         model, tokenizer = load_model(flan_size)
         logging.info("Loaded model")
         for sentence_mode in ["target"]:
             df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
-            for num_examples in [0, 1, 2]:
+            # for num_examples in [0, 1, 2]:
+            for num_examples in [1, 2]:
                 config = get_best_config()
                 random.seed(13)
                 logging.info("$" + "=" * 33)
