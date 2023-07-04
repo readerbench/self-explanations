@@ -132,7 +132,7 @@ if __name__ == '__main__':
                 training_args = TrainingArguments(
                     report_to="none",
                     learning_rate=3e-4,
-                    num_train_epochs=5,
+                    num_train_epochs=1,
                     per_device_train_batch_size=batch_size,
                     per_device_eval_batch_size=batch_size,
                     logging_steps=200,
