@@ -9,7 +9,7 @@ from sklearn.metrics import classification_report, confusion_matrix, f1_score
 
 from datasets import Dataset
 from transformers.utils import logging as transf_logging
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, TrainingArguments, AdapterTrainer
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, TrainingArguments, AdapterTrainer, TrainerCallback
 from transformers.adapters import LoRAConfig
 
 from core.data_processing.flan_data_processing import get_best_config, get_data, get_new_train_test_split, \
@@ -92,18 +92,21 @@ if __name__ == '__main__':
     sentence_mode = "target"
 
     df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
+    # df_train = df_train[:100]
+    # df_dev = df_dev[:100]
+    # df_test = df_test[:100]
     # for flan_size in ["small", "base", "large", "xl", "xxl"]:
-    for flan_size in ["xxl"]:
-        for num_examples in range(3):
+    for flan_size in ["xl"]:
+        for num_examples in [2]:
             batch_size = 1#get_batch_size(flan_size, num_examples)
             logging.info("=" * 33)
             logging.info(f"Starting {flan_size} - {num_examples} - {batch_size}")
             logging.info("=" * 33)
             for num_classes, task_name, task_df_label in [
+                (4, "overall", SelfExplanations.OVERALL),
                 (3, "paraphrasing", SelfExplanations.PARAPHRASE),
                 (3, "elaboration", SelfExplanations.ELABORATION),
                 (2, "bridging", SelfExplanations.BRIDGING),
-                (4, "overall", SelfExplanations.OVERALL),
             ]:
                 config = get_best_config()
                 logging.info("Generating training data %d", len(df_train))
@@ -122,7 +125,7 @@ if __name__ == '__main__':
                 # the tokenizer that we'll be using
                 tokenizer = AutoTokenizer.from_pretrained(base_model)
                 # start with the pretrained base model
-                model = AutoModelForSeq2SeqLM.from_pretrained(base_model, device_map="auto", torch_dtype=torch.float16)
+                model = AutoModelForSeq2SeqLM.from_pretrained(base_model, device_map="auto")
                 # set the parameters for LoRA
                 lora_config = LoRAConfig(r=8, alpha=16, intermediate_lora=True, output_lora=True)
 
@@ -135,7 +138,8 @@ if __name__ == '__main__':
                 training_args = TrainingArguments(
                     report_to="none",
                     learning_rate=3e-4,
-                    num_train_epochs=1,
+                    num_train_epochs=10,
+                    evaluation_strategy="epoch",
                     per_device_train_batch_size=batch_size,
                     per_device_eval_batch_size=batch_size,
                     logging_steps=200,
@@ -154,8 +158,7 @@ if __name__ == '__main__':
                     eval_dataset=load_split(sentences_dev, targets_dev, "dev"),
                 )
                 trainer.remove_callback(PrinterCallback)
-                with torch.autocast("cuda"):
-                    trainer.train()
+                trainer.train()
                 # trainer.evaluate()
                 # merge the adapter with the model
                 # this will add the adapter weight matrices to the model weight matrices
