@@ -154,7 +154,8 @@ if __name__ == '__main__':
                     eval_dataset=load_split(sentences_dev, targets_dev, "dev"),
                 )
                 trainer.remove_callback(PrinterCallback)
-                trainer.train()
+                with torch.autocast("cuda"):
+                    trainer.train()
                 # trainer.evaluate()
                 # merge the adapter with the model
                 # this will add the adapter weight matrices to the model weight matrices
