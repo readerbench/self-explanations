@@ -77,16 +77,16 @@ if __name__ == '__main__':
         for sentence_mode in ["target"]:
             df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
             # for num_examples in [0, 1, 2]:
-            for num_examples in [1, 2]:
+            for num_examples in [2]:
                 config = get_best_config()
                 random.seed(13)
                 logging.info("$" + "=" * 33)
                 logging.info(f">>Model:{flan_size} sentence_mode:{sentence_mode} num_examples:{num_examples}")
                 for num_classes, task_name, task_df_label in [
-                    (3, "paraphrasing", SelfExplanations.PARAPHRASE),
                     (3, "elaboration", SelfExplanations.ELABORATION),
                     (2, "bridging", SelfExplanations.BRIDGING),
                     (4, "overall", SelfExplanations.OVERALL),
+                    (3, "paraphrasing", SelfExplanations.PARAPHRASE),
                 ]:
                     sentences, targets = get_data(df_test, df_train, task_df_label, task_name, num_examples, config)
                     bs = 64
