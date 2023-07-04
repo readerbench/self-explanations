@@ -1,5 +1,8 @@
 import random
 import logging
+
+import torch
+
 import wandb
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
@@ -119,7 +122,7 @@ if __name__ == '__main__':
                 # the tokenizer that we'll be using
                 tokenizer = AutoTokenizer.from_pretrained(base_model)
                 # start with the pretrained base model
-                model = AutoModelForSeq2SeqLM.from_pretrained(base_model)
+                model = AutoModelForSeq2SeqLM.from_pretrained(base_model, device_map="auto", torch_dtype=torch.float16)
                 # set the parameters for LoRA
                 lora_config = LoRAConfig(r=8, alpha=16, intermediate_lora=True, output_lora=True)
 
