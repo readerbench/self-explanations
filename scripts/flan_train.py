@@ -96,8 +96,8 @@ if __name__ == '__main__':
     # df_dev = df_dev[:100]
     # df_test = df_test[:100]
     # for flan_size in ["small", "base", "large", "xl", "xxl"]:
-    for flan_size in ["xl"]:
-        for num_examples in [2]:
+    for flan_size in ["xxl"]:
+        for num_examples in [0, 1, 2]:
             batch_size = 1#get_batch_size(flan_size, num_examples)
             logging.info("=" * 33)
             logging.info(f"Starting {flan_size} - {num_examples} - {batch_size}")
