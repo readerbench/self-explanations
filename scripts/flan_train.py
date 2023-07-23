@@ -2,7 +2,7 @@ import random
 import logging
 
 import torch
-
+import pickle
 import wandb
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
@@ -20,7 +20,7 @@ from transformers.trainer_callback import PrinterCallback
 logging.basicConfig(level=logging.INFO)
 
 # tokenize the dataset
-def encode_batch(examples):
+def encode_batch(tokenizer, examples):
     # the name of the input column
     text_column = 'prompt'
     # the name of the target column
@@ -45,14 +45,14 @@ def encode_batch(examples):
     return model_inputs
 
 # load the dataset
-def load_split(train_data, train_labels, split_name):
+def load_split(train_data, train_labels, split_name, tokenizer):
     dataset = Dataset.from_dict({
         "prompt": train_data,
         "label": [["(A)", "(B)", "(C)", "(D)"][x] for x in train_labels]
     })
 
     dataset = dataset.map(
-        encode_batch,
+        lambda x: encode_batch(tokenizer, x),
         batched=True,
         remove_columns=dataset.column_names,
         desc="Running tokenizer on " + split_name + " dataset",
@@ -109,6 +109,9 @@ if __name__ == '__main__':
                 (2, "bridging", SelfExplanations.BRIDGING),
             ]:
                 config = get_best_config()
+                with open('data.pickle', 'rb') as f:
+                    subset2 = pickle.load(f)
+
                 logging.info("Generating training data %d", len(df_train))
                 sentences_train, targets_train = get_data(df_train, df_train, task_df_label, task_name, num_examples, config)
                 logging.info("Generating dev data %d", len(df_dev))
@@ -139,7 +142,7 @@ if __name__ == '__main__':
                     report_to="none",
                     learning_rate=3e-4,
                     num_train_epochs=10,
-                    evaluation_strategy="epoch",
+                    # evaluation_strategy="epoch",
                     per_device_train_batch_size=batch_size,
                     per_device_eval_batch_size=batch_size,
                     logging_steps=200,
@@ -154,8 +157,8 @@ if __name__ == '__main__':
                     args=training_args,
                     tokenizer=tokenizer,
                     # load the dataset
-                    train_dataset=load_split(sentences_train, targets_train, "train"),
-                    eval_dataset=load_split(sentences_dev, targets_dev, "dev"),
+                    train_dataset=load_split(sentences_train, targets_train, "train", tokenizer),
+                    eval_dataset=load_split(sentences_dev, targets_dev, "dev", tokenizer),
                 )
                 trainer.remove_callback(PrinterCallback)
                 trainer.train()
@@ -163,14 +166,32 @@ if __name__ == '__main__':
                 # merge the adapter with the model
                 # this will add the adapter weight matrices to the model weight matrices
                 model.merge_adapter("xsum")
-                num_validation = 10
-
 
                 grades = ["A", "B", "C", "D"]
-                validation_dataset = load_split(sentences_test, targets_test, "test")
+                validation_dataset = load_split(sentences_test, targets_test, "test", tokenizer)
                 logging.info("Validating results: %d", len(validation_dataset))
                 logging.info(transf_logging.get_logger('transformers.generation.configuration_utils'))
                 transf_logging.get_logger('transformers.generation.configuration_utils').setLevel(transf_logging.ERROR)
+
+
+                logging.info("=" * 33)
+                sents2, targets2 = subset2
+                validation_restricted_dataset = load_split(sents2, targets2, "test_restricted", tokenizer)
+                for i in range(len(sents2)):
+                    # load the input and label
+                    input_ids = validation_restricted_dataset[i]['input_ids'].unsqueeze(0).to(0)
+                    label_ids = validation_restricted_dataset[i]['labels'].unsqueeze(0).to(0)
+                    # use the model to generate the output
+                    output = model.generate(input_ids, max_length=15)
+                    # convert the tokens to text
+                    output_text = tokenizer.decode(output[0], skip_special_tokens=True)
+                    label_text = tokenizer.decode(label_ids[0], skip_special_tokens=True)
+                    input_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
+                    logging.info(f"input: {input_text}")
+                    logging.info(f"output: {output_text}")
+                    logging.info(f"label: {label_text}")
+                logging.info("=" * 33)
+
                 targets = []
                 predictions = []
                 for i in range(len(validation_dataset)):

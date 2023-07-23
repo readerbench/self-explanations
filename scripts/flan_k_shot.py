@@ -1,6 +1,7 @@
 import logging
 import random
 import torch
+import pickle
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
@@ -8,6 +9,7 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from core.data_processing.se_dataset import SelfExplanations
 from core.data_processing.flan_data_processing import get_new_train_test_split, get_prompt, get_examples, PromptUtils, \
     get_best_config, get_data, get_targets_and_preds
+from scripts.flan_train import load_split
 
 logging.basicConfig(level=logging.NOTSET)
 
@@ -96,5 +98,28 @@ if __name__ == '__main__':
                         bs = 4
                     elif model == "xxl":
                         bs = 1
+
+                    config = get_best_config()
+                    with open('data.pickle', 'rb') as f:
+                        subset2 = pickle.load(f)
+
+                    logging.info("=" * 33)
+                    sents2, targets2 = subset2
+                    validation_restricted_dataset = load_split(sents2, targets2, "test_restricted", tokenizer)
+                    for i in range(len(sents2)):
+                        # load the input and label
+                        input_ids = validation_restricted_dataset[i]['input_ids'].unsqueeze(0).to(0)
+                        label_ids = validation_restricted_dataset[i]['labels'].unsqueeze(0).to(0)
+                        # use the model to generate the output
+                        output = model.generate(input_ids, max_length=15)
+                        # convert the tokens to text
+                        output_text = tokenizer.decode(output[0], skip_special_tokens=True)
+                        label_text = tokenizer.decode(label_ids[0], skip_special_tokens=True)
+                        input_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
+                        logging.info(f"input: {input_text}")
+                        logging.info(f"output: {output_text}")
+                        logging.info(f"label: {label_text}")
+                    logging.info("=" * 33)
+
                     batch_eval(model, tokenizer, sentences, batch_size=bs, targets=targets, task_name=task_name,
                                details=f"{flan_size}|{sentence_mode}|{num_examples}|{config}", config=config)
