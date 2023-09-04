@@ -1,9 +1,6 @@
 import random
 import logging
 
-import torch
-import pickle
-import wandb
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 
@@ -16,6 +13,7 @@ from core.data_processing.flan_data_processing import get_best_config, get_data,
     get_targets_and_preds
 from core.data_processing.se_dataset import SelfExplanations
 from transformers.trainer_callback import PrinterCallback
+from huggingface_hub import login as login_hf
 
 logging.basicConfig(level=logging.INFO)
 
@@ -62,26 +60,67 @@ def load_split(train_data, train_labels, split_name, tokenizer):
 
     return dataset
 
+# validate trained model
+def validate(model, sentences_test, targets_test, tokenizer):
+    grades = ["A", "B", "C", "D"]
+    validation_dataset = load_split(sentences_test, targets_test, "test", tokenizer)
+    logging.info("Validating results: %d", len(validation_dataset))
+    logging.info(transf_logging.get_logger('transformers.generation.configuration_utils'))
+    transf_logging.get_logger('transformers.generation.configuration_utils').setLevel(transf_logging.ERROR)
 
-def get_batch_size(flan_size, num_examples):
-    index = ["small", "base", "large", "xl", "xxl"].index(flan_size)
-    increments = [1, 3, 10, 40, 160]
-    example_increment = num_examples + 1
+    targets = []
+    predictions = []
+    for i in range(len(validation_dataset)):
+        # load the input and label
+        input_ids = validation_dataset[i]['input_ids'].unsqueeze(0).to(0)
+        label_ids = validation_dataset[i]['labels'].unsqueeze(0).to(0)
+        # use the model to generate the output
+        output = model.generate(input_ids, max_length=15)
+        # convert the tokens to text
+        output_text = tokenizer.decode(output[0], skip_special_tokens=True)
+        label_text = tokenizer.decode(label_ids[0], skip_special_tokens=True)
+        targets.append(label_text)
+        predictions.append(output_text)
+        if i % 200 == 0:
+            input_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
+            logging.info(f"Seen {i} batches.")
+            logging.info(f"input: {input_text}")
+            logging.info(f"output: {output_text}")
+            logging.info(f"label: {label_text}")
 
-    return max(1, int(20 / increments[index] / example_increment))
+    transf_logging.get_logger('transformers.generation.configuration_utils').setLevel(transf_logging.INFO)
+    logging.info("=" * 33)
+    logging.info(predictions)
+    logging.info(targets)
+    targets_opt, preds_opt = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=True,
+                                                   is_optimistical=True)
+    targets_opt = np.array(targets_opt)
+    preds_opt = np.array(preds_opt)
+    logging.info(f"Optimistic estimation")
+    logging.info(
+        f"task:{task_name} details:opt-{flan_size}-{num_examples} f1:{f1_score(targets_opt, preds_opt, average='weighted')}")
+    logging.info(classification_report(targets_opt, preds_opt))
+    logging.info(confusion_matrix(targets_opt, preds_opt))
+    logging.info("=" * 33)
+    targets_pes, preds_pes = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=True,
+                                                   is_optimistical=False)
+    targets_pes = np.array(targets_pes)
+    preds_pes = np.array(preds_pes)
+    logging.info(f"Pessimistic estimation")
+    logging.info(
+        f"task:{task_name} details:pes-{flan_size}-{num_examples} f1:{f1_score(targets_pes, preds_pes, average='weighted')}")
+    logging.info(classification_report(targets_pes, preds_pes))
+    logging.info(confusion_matrix(targets_pes, preds_pes))
+    logging.info("=" * 33)
+    logging.info(
+        f"Sentences: {len(validation_dataset)}\tOptimistic: {len(targets_opt)}\tPessimistic: {len(targets_pes)}\tPerc: {100.0 * len(targets_pes) / len(validation_dataset)}")
+    logging.info("=" * 33)
 
 
 if __name__ == '__main__':
-    STUDY_NAME = "rb_feats_importance_none"
-    PROJECT = "optuna-a100"
-    ENTITY = "bogdan-nicula22"
-    wandb.init(
-        project=PROJECT,
-        entity=ENTITY,  # NOTE: this entity depends on your wandb account.
-        config={},
-        group=STUDY_NAME,
-        reinit=True,
-    )
+    upload_adapter = True
+    login_hf(token="write_secret")
+
     logging.info("Starting program")
     self_explanations = SelfExplanations()
     logging.info("Loading SEs")
@@ -92,13 +131,11 @@ if __name__ == '__main__':
     sentence_mode = "target"
 
     df_train, df_dev, df_test = get_new_train_test_split(self_explanations.df, sentence_mode)
-    # df_train = df_train[:100]
-    # df_dev = df_dev[:100]
-    # df_test = df_test[:100]
-    # for flan_size in ["small", "base", "large", "xl", "xxl"]:
-    for flan_size in ["xxl"]:
+
+    for flan_size in ["small", "base", "large", "xl", "xxl"]:
         for num_examples in [0, 1, 2]:
-            batch_size = 1#get_batch_size(flan_size, num_examples)
+            batch_size = 4
+            epochs = 1
             logging.info("=" * 33)
             logging.info(f"Starting {flan_size} - {num_examples} - {batch_size}")
             logging.info("=" * 33)
@@ -108,9 +145,8 @@ if __name__ == '__main__':
                 (3, "elaboration", SelfExplanations.ELABORATION),
                 (2, "bridging", SelfExplanations.BRIDGING),
             ]:
+                adapter_name = f"flant5-{flan_size}-{num_examples}ex-{task_name}-{epochs}epochs"
                 config = get_best_config()
-                with open('data.pickle', 'rb') as f:
-                    subset2 = pickle.load(f)
 
                 logging.info("Generating training data %d", len(df_train))
                 sentences_train, targets_train = get_data(df_train, df_train, task_df_label, task_name, num_examples, config)
@@ -119,10 +155,6 @@ if __name__ == '__main__':
                 logging.info("Generating test data %d", len(df_test))
                 sentences_test, targets_test = get_data(df_test, df_train, task_df_label, task_name, num_examples, config)
 
-                # sentences_train = sentences_train[:800]
-                # targets_train = targets_train[:800]
-                # sentences_test = sentences_test[:1000]
-                # targets_test = targets_test[:1000]
                 # the base model that we'll be using
                 base_model = f"google/flan-t5-{flan_size}"
                 # the tokenizer that we'll be using
@@ -132,16 +164,16 @@ if __name__ == '__main__':
                 # set the parameters for LoRA
                 lora_config = LoRAConfig(r=8, alpha=16, intermediate_lora=True, output_lora=True)
 
-                # make a new adapter for the XSum dataset
-                model.add_adapter("xsum", config=lora_config)
+                # make a new adapter
+                model.add_adapter(adapter_name, config=lora_config)
                 # enable the adapter for training
-                model.train_adapter("xsum")
-                model.set_active_adapters(["xsum"])
+                model.train_adapter(adapter_name)
+                model.set_active_adapters([adapter_name])
 
                 training_args = TrainingArguments(
                     report_to="none",
                     learning_rate=3e-4,
-                    num_train_epochs=10,
+                    num_train_epochs=epochs,
                     # evaluation_strategy="epoch",
                     per_device_train_batch_size=batch_size,
                     per_device_eval_batch_size=batch_size,
@@ -162,80 +194,18 @@ if __name__ == '__main__':
                 )
                 trainer.remove_callback(PrinterCallback)
                 trainer.train()
-                # trainer.evaluate()
+
+                if upload_adapter:
+                    logging.info("Uploading adapter.")
+                    model.push_adapter_to_hub(
+                        adapter_name,
+                        adapter_name,
+                        adapterhub_tag="self-explanations",
+                        datasets_tag="self-explanations"
+                    )
+
                 # merge the adapter with the model
                 # this will add the adapter weight matrices to the model weight matrices
-                model.merge_adapter("xsum")
+                model.merge_adapter(adapter_name)
 
-                grades = ["A", "B", "C", "D"]
-                validation_dataset = load_split(sentences_test, targets_test, "test", tokenizer)
-                logging.info("Validating results: %d", len(validation_dataset))
-                logging.info(transf_logging.get_logger('transformers.generation.configuration_utils'))
-                transf_logging.get_logger('transformers.generation.configuration_utils').setLevel(transf_logging.ERROR)
-
-
-                logging.info("=" * 33)
-                sents2, targets2 = subset2
-                validation_restricted_dataset = load_split(sents2, targets2, "test_restricted", tokenizer)
-                for i in range(len(sents2)):
-                    # load the input and label
-                    input_ids = validation_restricted_dataset[i]['input_ids'].unsqueeze(0).to(0)
-                    label_ids = validation_restricted_dataset[i]['labels'].unsqueeze(0).to(0)
-                    # use the model to generate the output
-                    output = model.generate(input_ids, max_length=15)
-                    # convert the tokens to text
-                    output_text = tokenizer.decode(output[0], skip_special_tokens=True)
-                    label_text = tokenizer.decode(label_ids[0], skip_special_tokens=True)
-                    input_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
-                    logging.info(f"input: {input_text}")
-                    logging.info(f"output: {output_text}")
-                    logging.info(f"label: {label_text}")
-                logging.info("=" * 33)
-
-                targets = []
-                predictions = []
-                for i in range(len(validation_dataset)):
-                    # load the input and label
-                    input_ids = validation_dataset[i]['input_ids'].unsqueeze(0).to(0)
-                    label_ids = validation_dataset[i]['labels'].unsqueeze(0).to(0)
-                    # use the model to generate the output
-                    output = model.generate(input_ids, max_length=15)
-                    # convert the tokens to text
-                    output_text = tokenizer.decode(output[0], skip_special_tokens=True)
-                    label_text = tokenizer.decode(label_ids[0], skip_special_tokens=True)
-                    targets.append(label_text)
-                    predictions.append(output_text)
-                    if i % 200 == 0:
-                        input_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
-                        logging.info(f"Seen {i} batches.")
-                        logging.info(f"input: {input_text}")
-                        logging.info(f"output: {output_text}")
-                        logging.info(f"label: {label_text}")
-
-                transf_logging.get_logger('transformers.generation.configuration_utils').setLevel(transf_logging.INFO)
-                logging.info("=" * 33)
-                logging.info(predictions)
-                logging.info(targets)
-                targets_opt, preds_opt = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=True,
-                                                               is_optimistical=True)
-                targets_opt = np.array(targets_opt)
-                preds_opt = np.array(preds_opt)
-                logging.info(f"Optimistic estimation")
-                logging.info(
-                    f"task:{task_name} details:opt-{flan_size}-{num_examples} f1:{f1_score(targets_opt, preds_opt, average='weighted')}")
-                logging.info(classification_report(targets_opt, preds_opt))
-                logging.info(confusion_matrix(targets_opt, preds_opt))
-                logging.info("=" * 33)
-                targets_pes, preds_pes = get_targets_and_preds(predictions, targets, grades, targets_raw_flag=True,
-                                                               is_optimistical=False)
-                targets_pes = np.array(targets_pes)
-                preds_pes = np.array(preds_pes)
-                logging.info(f"Pessimistic estimation")
-                logging.info(
-                    f"task:{task_name} details:pes-{flan_size}-{num_examples} f1:{f1_score(targets_pes, preds_pes, average='weighted')}")
-                logging.info(classification_report(targets_pes, preds_pes))
-                logging.info(confusion_matrix(targets_pes, preds_pes))
-                logging.info("=" * 33)
-                logging.info(
-                    f"Sentences: {len(validation_dataset)}\tOptimistic: {len(targets_opt)}\tPessimistic: {len(targets_pes)}\tPerc: {100.0 * len(targets_pes) / len(validation_dataset)}")
-                logging.info("=" * 33)
+                validate(model, sentences_test, targets_test, tokenizer)

@@ -35,8 +35,8 @@ def get_new_train_test_split(df, target_sentence_mode="target"):
         df[SelfExplanations.TARGET_SENTENCE] = df[SelfExplanations.PREVIOUS_SENTENCE].astype(str) + " " + df[SelfExplanations.TARGET_SENTENCE].astype(str)
 
     df['EntryType'] = df.apply(lambda x: map_train_test(x), axis=1)
-    # return df[(df['EntryType'] == 'train') | (df['EntryType'] == 'dev')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
-    return df[(df['EntryType'] == 'train')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
+    return df[(df['EntryType'] == 'train') | (df['EntryType'] == 'dev')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
+    # return df[(df['EntryType'] == 'train')], df[df['EntryType'] == 'dev'], df[df['EntryType'] == 'test']
 
 def get_prompt(prompt_structure, class_name, class_definition, class_meaning, source, production,
                source_ex=None, production_ex=None, result_ex=None, config=""):
