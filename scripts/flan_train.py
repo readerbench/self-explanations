@@ -83,7 +83,7 @@ if __name__ == '__main__':
     logging.info("Starting program")
     self_explanations = SelfExplanations()
     logging.info("Loading SEs")
-    self_explanations.parse_se_from_csv("../data/results_se_aggregated_dataset_clean.csv")
+    self_explanations.parse_se_from_csv("../data/dataset_clean.csv")
     logging.info("Loaded SEs")
 
     random.seed(13)

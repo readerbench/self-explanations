@@ -3,7 +3,7 @@
 ---
 
 This codebase corresponds to several papers which will be listed below once published.
-* TBD
+* ["Automated Assessment of Comprehension Strategies from Self-Explanations Using LLMs"](https://www.mdpi.com/2078-2489/14/10/567)
 
 The repository contains several branches that were used for development. All stable code is gradually being moved to main. **We strongly advise using only the main branch code.**
 
